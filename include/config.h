@@ -30,8 +30,8 @@ constexpr float motorLimitVolts = 1.50f;   // Tope de Uq durante control.
 constexpr float alignVolts = 1.50f;        // Uq durante alineación.
 constexpr float speedLimit = 1.0f;         // rad/s
 constexpr float acceleration = 0.50f;      // rad/s²
-constexpr float velocityP = 0.20f;
-constexpr float velocityI = 0.10f;
+constexpr float velocityP = 2.00f;
+constexpr float velocityI = 0.20f;
 constexpr float velocityFilterSeconds = 0.05f;
 
 constexpr uint32_t sensorPeriodMs = 5;
