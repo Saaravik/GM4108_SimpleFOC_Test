@@ -1,0 +1,545 @@
+#include <Arduino.h>
+#include <SPI.h>
+#include <SimpleFOC.h>
+#include <driver/gpio.h>
+
+#include <ctype.h>
+#include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "config.h"
+
+namespace {
+enum class State { SAFE, SENSOR_TEST, READY, CALIBRATION, MOTOR_CONTROL };
+enum class Calibration { Pending, Passed, Failed, Aborted };
+
+State state = State::SAFE;
+Calibration calibration = Calibration::Pending;
+BLDCDriver3PWM driver(cfg::pwmA, cfg::pwmB, cfg::pwmC, cfg::driverEnable);
+BLDCMotor motor(cfg::polePairs);
+
+bool driverReady = false;
+bool sensorBusReady = false;
+bool enableRequested = false;
+bool confirmationPending = false;
+bool calibrationAborted = false;
+bool calibrationSensorFault = false;
+bool timeoutStopping = false;
+float requestedSpeed = 0;
+float rampedSpeed = 0;
+uint32_t confirmationAt = 0;
+uint32_t lastAuthorizationAt = 0;
+uint32_t lastControlAt = 0;
+uint32_t lastSensorAt = 0;
+uint32_t lastReportAt = 0;
+const char* lastFault = "-";
+
+void pollSerial();
+
+void lowerEnable() {
+  digitalWrite(cfg::driverEnable, LOW);
+  enableRequested = false;
+}
+
+// SimpleFOC 2.4.0 descarta la paridad y EF en su lectura. Conservamos su
+// interfaz Sensor para FOC y validamos la misma muestra que usa el control.
+class CheckedAS5048A : public MagneticSensorSPI {
+ public:
+  CheckedAS5048A()
+      : MagneticSensorSPI(cfg::encoderCs, cfg::encoderBits,
+                          cfg::encoderAngleRegister, cfg::encoderClockHz),
+        settings(cfg::encoderClockHz, MSBFIRST, SPI_MODE1) {}
+
+  float getSensorAngle() override {
+    if (state == State::CALIBRATION) pollSerial();
+
+    SPI.beginTransaction(settings);
+    transfer(readCommand(cfg::encoderAngleRegister));
+    const uint16_t angle = transfer(readCommand(cfg::encoderDiagnosticsRegister));
+    const uint16_t diagnostics = transfer(0);  // NOP devuelve el diagnóstico pendiente.
+
+    const uint16_t frames = angle | diagnostics;
+    const bool ef = frames & 0x4000;
+    const bool parity = oddParity(angle) || oddParity(diagnostics);
+    if (ef) {
+      transfer(readCommand(cfg::encoderClearErrorRegister));
+      const uint16_t error = transfer(0);
+      errorRegister = oddParity(error) ? -1 : (error & 0x0007);
+    }
+    SPI.endTransaction();
+
+    diagnosticRegister = diagnostics & 0x3FFF;
+    if (parity || ef) {
+      parityErrors += parity;
+      flagErrors += ef;
+      return reject("SPI: paridad o EF");
+    }
+    // OCF debe estar activo. COF y las alertas de campo impiden el control.
+    if ((diagnosticRegister & 0x0F00) != 0x0100) {
+      ++diagnosticErrors;
+      return reject("AS5048A: OCF/COF/campo magnetico");
+    }
+
+    constexpr int countsPerTurn = 1 << cfg::encoderBits;
+    constexpr float radiansPerCount = _2PI / countsPerTurn;
+    const int count = angle & (countsPerTurn - 1);
+    const uint32_t now = micros();
+    if (goodSamples == 0) {
+      manualOrigin = count * radiansPerCount;
+      velocityAt = now;
+      windowTravel = 0;
+    } else {
+      int delta = count - rawCount;
+      if (delta > countsPerTurn / 2) delta -= countsPerTurn;
+      if (delta < -countsPerTurn / 2) delta += countsPerTurn;
+      const float travel = delta * radiansPerCount;
+      const float sampleSeconds = (now - sampledAt) * 1e-6f;
+      if (fabsf(travel) > cfg::sensorJumpMarginRad +
+                              cfg::sensorPlausibilityRadPerSec * sampleSeconds) {
+        ++jumpErrors;
+        return reject("AS5048A: salto angular");
+      }
+
+      windowTravel += travel;
+      const uint32_t windowUs = now - velocityAt;
+      if (windowUs >= cfg::velocityWindowUs) {
+        estimatedSpeed = windowTravel / (windowUs * 1e-6f);
+        speedValid = true;
+        windowTravel = 0;
+        velocityAt = now;
+      }
+    }
+
+    rawCount = count;
+    sampledAt = now;
+    if (goodSamples < cfg::minimumGoodSamples) ++goodSamples;
+    const float radians = count * radiansPerCount;
+    if (state == State::SENSOR_TEST) {
+      const float travel = remainderf(radians - manualOrigin, _2PI);
+      if (fabsf(travel) >= cfg::manualTravelRad) manualTravelSeen = true;
+    }
+    return radians;
+  }
+
+  float getVelocity() override { return speedValid ? estimatedSpeed : 0; }
+  bool healthy() const { return goodSamples >= cfg::minimumGoodSamples && speedValid; }
+
+  void resetManualTest() {
+    goodSamples = 0;
+    speedValid = false;
+    manualTravelSeen = false;
+  }
+
+  bool manualTravelSeen = false;
+  bool speedValid = false;
+  unsigned goodSamples = 0;
+  int rawCount = 0;
+  int errorRegister = -1;
+  uint16_t diagnosticRegister = 0;
+  uint32_t parityErrors = 0;
+  uint32_t flagErrors = 0;
+  uint32_t diagnosticErrors = 0;
+  uint32_t jumpErrors = 0;
+
+ private:
+  static bool oddParity(uint16_t frame) { return __builtin_parity(frame); }
+
+  static uint16_t readCommand(uint16_t address) {
+    const uint16_t command = address | 0x4000;
+    return command | (oddParity(command) ? 0x8000 : 0);
+  }
+
+  static uint16_t transfer(uint16_t frame) {
+    digitalWrite(cfg::encoderCs, LOW);
+    delayMicroseconds(1);
+    const uint16_t reply = SPI.transfer16(frame);
+    digitalWrite(cfg::encoderCs, HIGH);
+    delayMicroseconds(1);
+    return reply;
+  }
+
+  float reject(const char* reason) {
+    lastFault = reason;
+    resetManualTest();
+    if (state == State::CALIBRATION) calibrationSensorFault = true;
+    if (state == State::CALIBRATION || state == State::MOTOR_CONTROL) lowerEnable();
+    return -1;  // Sensor::update() descarta ángulos negativos.
+  }
+
+  SPISettings settings;
+  uint32_t sampledAt = 0;
+  uint32_t velocityAt = 0;
+  float estimatedSpeed = 0;
+  float windowTravel = 0;
+  float manualOrigin = 0;
+};
+
+CheckedAS5048A sensor;
+
+const char* stateName() {
+  switch (state) {
+    case State::SAFE: return "SAFE";
+    case State::SENSOR_TEST: return "SENSOR_TEST";
+    case State::READY: return "READY";
+    case State::CALIBRATION: return "CALIBRATION";
+    case State::MOTOR_CONTROL: return "MOTOR_CONTROL";
+  }
+  return "?";
+}
+
+const char* calibrationName() {
+  switch (calibration) {
+    case Calibration::Pending: return "pendiente";
+    case Calibration::Passed: return "OK";
+    case Calibration::Failed: return "fallida";
+    case Calibration::Aborted: return "abortada";
+  }
+  return "?";
+}
+
+void deenergize() {
+  lowerEnable();
+  if (driverReady) motor.disable();  // Requiere PWM inicializado y driver enlazado.
+  requestedSpeed = 0;
+  rampedSpeed = 0;
+  motor.target = 0;
+  motor.current_sp = 0;
+  timeoutStopping = false;
+  confirmationPending = false;
+}
+
+void failSafe(const char* reason) {
+  deenergize();
+  state = State::SAFE;
+  lastFault = reason;
+  Serial.printf("SAFE | %s\n", lastFault);
+}
+
+bool settingsValid() {
+  return cfg::polePairs > 0 && cfg::supplyVolts >= 8 && cfg::supplyVolts <= 35 &&
+         cfg::driverLimitVolts <= cfg::supplyVolts &&
+         2 * cfg::motorLimitVolts <= cfg::driverLimitVolts &&
+         cfg::alignVolts > 0 && cfg::alignVolts <= cfg::motorLimitVolts &&
+         isfinite(cfg::speedLimit) && cfg::speedLimit > 0 &&
+         isfinite(cfg::acceleration) && cfg::acceleration > 0;
+}
+
+void prepareDriver() {
+  if (state != State::SENSOR_TEST || !sensor.healthy() || !sensor.manualTravelSeen) {
+    Serial.println("INIT requiere SENSOR y giro manual con lecturas validas.");
+    return;
+  }
+  if (!settingsValid()) {
+    failSafe("Revisar parametros en config.h");
+    return;
+  }
+  lowerEnable();
+  if (!driverReady) {
+    driver.voltage_power_supply = cfg::supplyVolts;
+    driver.voltage_limit = cfg::driverLimitVolts;
+    driver.pwm_frequency = cfg::pwmFrequencyHz;
+    if (driver.init() != 1) {
+      failSafe("Fallo driver.init()");
+      return;
+    }
+    motor.linkDriver(&driver);
+    driverReady = true;
+  }
+
+  deenergize();
+  calibration = Calibration::Pending;
+  state = State::READY;
+  Serial.println("READY | PWM inicializado en ESP32, EN bajo. CALIBRATE solicita confirmacion.");
+}
+
+bool mayCalibrate() {
+  if (state != State::READY || calibration == Calibration::Passed || !sensor.healthy()) {
+    Serial.println("Calibracion requiere READY sin calibracion y encoder valido.");
+    return false;
+  }
+  if (!cfg::polePairsConfirmed || !cfg::benchLimitsConfirmed) {
+    Serial.println("Bloqueado: confirmar pares de polos y limites de banco en config.h.");
+    return false;
+  }
+  return true;
+}
+
+void runCalibration() {
+  state = State::CALIBRATION;
+  calibrationAborted = false;
+  calibrationSensorFault = false;
+  confirmationPending = false;
+  motor.linkSensor(&sensor);
+  motor.controller = MotionControlType::velocity;
+  motor.torque_controller = TorqueControlType::voltage;
+  motor.foc_modulation = FOCModulationType::SinePWM;
+  motor.voltage_limit = cfg::motorLimitVolts;
+  motor.voltage_sensor_align = cfg::alignVolts;
+  motor.velocity_limit = cfg::speedLimit;
+  motor.PID_velocity.P = cfg::velocityP;
+  motor.PID_velocity.I = cfg::velocityI;
+  motor.PID_velocity.D = 0;
+  motor.LPF_velocity.Tf = cfg::velocityFilterSeconds;
+  motor.sensor_direction = Direction::UNKNOWN;
+  motor.zero_electric_angle = NOT_SET;
+  motor.pp_check_result = false;
+
+  Serial.println("CALIBRATION | El rotor puede moverse. Corte fisico accesible.");
+  sensor.update();
+  int initialized = 0;
+  if (!calibrationAborted && !calibrationSensorFault) {
+    enableRequested = true;
+    initialized = motor.init();  // En 2.4.0 esta llamada también activa EN.
+    sensor.update();
+  }
+  const int aligned = initialized == 1 && !calibrationAborted && !calibrationSensorFault
+                          ? motor.initFOC() : 0;
+  pollSerial();
+  deenergize();
+  Serial.printf("CALIBRATION | motor.init=%d initFOC=%s pares=%s\n", initialized,
+                aligned == 1 ? "OK" : "sin exito", motor.pp_check_result ? "OK" : "sin validar");
+
+  if (calibrationAborted) {
+    calibration = Calibration::Aborted;
+    failSafe("Calibracion abortada por consola");
+  } else if (calibrationSensorFault || aligned != 1 || !motor.pp_check_result ||
+             !isfinite(motor.zero_electric_angle) || motor.zero_electric_angle == NOT_SET) {
+    calibration = Calibration::Failed;
+    if (calibrationSensorFault) failSafe("Error de encoder durante calibracion");
+    else if (initialized != 1) failSafe("Fallo motor.init()");
+    else if (aligned != 1) failSafe("Fallo motor.initFOC(): revisar movimiento y cableado");
+    else failSafe("Alineacion rechazada: pares de polos o cero electrico");
+  } else {
+    calibration = Calibration::Passed;
+    state = State::READY;
+    Serial.printf("READY | FOC OK, pares=%d, sentido=%s, cero=%.4f rad, EN bajo. START autoriza.\n",
+                  cfg::polePairs, motor.sensor_direction == Direction::CW ? "CW" : "CCW",
+                  motor.zero_electric_angle);
+  }
+}
+
+void startControl() {
+  if (state != State::READY || calibration != Calibration::Passed || !sensor.healthy()) {
+    Serial.println("START requiere READY, FOC OK y encoder valido.");
+    return;
+  }
+  deenergize();
+  state = State::MOTOR_CONTROL;
+  motor.enable();
+  enableRequested = true;
+  lastControlAt = micros();
+  lastAuthorizationAt = millis();
+  Serial.printf("MOTOR_CONTROL | objetivo 0. Renovar con V <rad/s> o KEEP antes de %lu ms.\n",
+                static_cast<unsigned long>(cfg::commandTimeoutMs));
+}
+
+void updateControl() {
+  const uint32_t nowUs = micros();
+  const uint32_t elapsedUs = nowUs - lastControlAt;
+  lastControlAt = nowUs;
+  if (elapsedUs > cfg::maxControlGapUs) {
+    calibration = Calibration::Pending;
+    failSafe("Intervalo de control excedido");
+    return;
+  }
+  if (!timeoutStopping && millis() - lastAuthorizationAt >= cfg::commandTimeoutMs) {
+    requestedSpeed = 0;
+    timeoutStopping = true;
+    lastFault = "Timeout de comandos";
+  }
+
+  const float maxStep = cfg::acceleration * (elapsedUs * 1e-6f);
+  const float error = requestedSpeed - rampedSpeed;
+  rampedSpeed += constrain(error, -maxStep, maxStep);
+  motor.target = rampedSpeed;
+  if (timeoutStopping && rampedSpeed == 0) {
+    deenergize();
+    state = State::READY;
+    Serial.println("READY | timeout: objetivo 0, EN bajo. START para rearmar.");
+    return;
+  }
+
+  motor.loopFOC();
+  if (!sensor.healthy()) {
+    calibration = Calibration::Pending;
+    failSafe(lastFault);
+    return;
+  }
+  motor.move();
+}
+
+void report(bool periodic) {
+  char angle[16] = "N/D";
+  char raw[8] = "N/D";
+  char speed[16] = "N/D";
+  if (sensor.goodSamples > 0) {
+    snprintf(angle, sizeof(angle), "%.2f", sensor.rawCount * (360.0f / (1 << cfg::encoderBits)));
+    snprintf(raw, sizeof(raw), "%d", sensor.rawCount);
+  }
+  if (sensor.healthy()) snprintf(speed, sizeof(speed), "%.3f", sensor.getVelocity());
+
+  char message[416];
+  const int length = snprintf(
+      message, sizeof(message),
+      "%s | ang=%s deg bruto=%s vel=%s rad/s obj=%.2f rampa=%.2f | "
+      "bus=%.2f V lim motor=%.2f V driver=%.2f V alin=%.2f V | PWM=%s EN pedido=%s | FOC=%s | "
+      "giro=%s paridad=%lu EF=%lu diag=%lu salto=%lu regDiag=0x%04X regErr=%d | ultimo=%s\n",
+      stateName(), angle, raw, speed, requestedSpeed, rampedSpeed, cfg::supplyVolts,
+      cfg::motorLimitVolts, cfg::driverLimitVolts, cfg::alignVolts,
+      driverReady ? "listo" : "pendiente", enableRequested ? "HIGH" : "LOW",
+      calibrationName(), sensor.manualTravelSeen ? "si" : "pendiente",
+      static_cast<unsigned long>(sensor.parityErrors), static_cast<unsigned long>(sensor.flagErrors),
+      static_cast<unsigned long>(sensor.diagnosticErrors), static_cast<unsigned long>(sensor.jumpErrors),
+      static_cast<unsigned>(sensor.diagnosticRegister), sensor.errorRegister, lastFault);
+  if (length > 0 && length < static_cast<int>(sizeof(message)) &&
+      (!periodic || Serial.availableForWrite() >= length)) {
+    Serial.write(reinterpret_cast<const uint8_t*>(message), length);
+  }
+}
+
+void printHelp() {
+  Serial.println("HELP | STATUS | SENSOR | INIT | CALIBRATE | CONFIRM | START\n"
+                 "V <rad/s> | KEEP | STOP | DISABLE\n"
+                 "Para empezar: salida KORAD apagada, SENSOR y giro manual.");
+}
+
+void setSpeed(const char* argument) {
+  char* end = nullptr;
+  const float speed = strtof(argument, &end);
+  if (end == argument || *end != '\0' || !isfinite(speed) || fabsf(speed) > cfg::speedLimit) {
+    Serial.printf("Velocidad invalida. Rango: +/-%.2f rad/s.\n", cfg::speedLimit);
+    return;
+  }
+  requestedSpeed = speed;
+  lastAuthorizationAt = millis();
+}
+
+void handleCommand(char* command) {
+  while (*command == ' ' || *command == '\t') ++command;
+  char* end = command + strlen(command);
+  while (end > command && (end[-1] == ' ' || end[-1] == '\t')) *--end = '\0';
+  if (*command == '\0') return;
+  for (char* c = command; *c; ++c) *c = toupper(static_cast<unsigned char>(*c));
+
+  const bool stop = strcmp(command, "STOP") == 0;
+  const bool disable = strcmp(command, "DISABLE") == 0;
+  if (state == State::CALIBRATION) {
+    if (stop || disable) {
+      lowerEnable();
+      calibrationAborted = true;
+    }
+    return;
+  }
+  if (stop || disable) {
+    deenergize();
+    if (disable) {
+      calibration = Calibration::Pending;
+      state = State::SAFE;
+    } else if (state == State::MOTOR_CONTROL) {
+      state = State::READY;
+    }
+    Serial.printf("%s | objetivo 0, EN bajo.\n", stateName());
+  } else if (strcmp(command, "HELP") == 0) {
+    printHelp();
+  } else if (strcmp(command, "STATUS") == 0) {
+    report(false);
+  } else if (strcmp(command, "SENSOR") == 0 && state != State::MOTOR_CONTROL) {
+    if (!sensorBusReady) {
+      Serial.println("SPI sin inicializar. Revise el bus y reinicie.");
+      return;
+    }
+    deenergize();
+    calibration = Calibration::Pending;
+    sensor.resetManualTest();
+    state = State::SENSOR_TEST;
+    Serial.printf("SENSOR_TEST | EN bajo. Gire el rotor a mano al menos %.1f grados.\n",
+                  cfg::manualTravelRad * (360.0f / _2PI));
+  } else if (strcmp(command, "INIT") == 0) {
+    prepareDriver();
+  } else if (strcmp(command, "CALIBRATE") == 0 && mayCalibrate()) {
+    confirmationPending = true;
+    confirmationAt = millis();
+    Serial.printf("CONFIRM antes de %.1f s solo si el motor esta sujeto, libre, sin rueda ni carga,\n"
+                  "la fuente esta correctamente configurada y ha activado su salida intencionadamente.\n",
+                  cfg::confirmationTimeoutMs * 0.001);
+  } else if (strcmp(command, "CONFIRM") == 0) {
+    const bool valid = confirmationPending && millis() - confirmationAt < cfg::confirmationTimeoutMs;
+    confirmationPending = false;
+    if (!valid) Serial.println("Confirmacion ausente o caducada. Use CALIBRATE.");
+    else if (mayCalibrate()) runCalibration();
+  } else if (strcmp(command, "START") == 0) {
+    startControl();
+  } else if ((command[0] == 'V' && (command[1] == ' ' || command[1] == '\t')) ||
+             strcmp(command, "KEEP") == 0) {
+    if (state != State::MOTOR_CONTROL || timeoutStopping) {
+      Serial.println("Autorizacion inactiva. Use START desde READY con FOC OK.");
+    } else if (command[0] == 'V') {
+      setSpeed(command + 2);
+    } else {
+      lastAuthorizationAt = millis();
+    }
+  } else if (strcmp(command, "CALIBRATE") != 0) {
+    Serial.println("Comando no disponible. Use HELP.");
+  }
+}
+
+void pollSerial() {
+  static char line[80];
+  static size_t used = 0;
+  static bool discard = false;
+  for (unsigned budget = 0; budget < sizeof(line) && Serial.available(); ++budget) {
+    const int c = Serial.read();
+    if (c == '\r' || c == '\n') {
+      const bool valid = !discard && used != 0;
+      if (!discard) line[used] = '\0';
+      else if (state != State::CALIBRATION) Serial.println("Linea serie invalida o demasiado larga.");
+      used = 0;
+      discard = false;
+      if (valid) {
+        handleCommand(line);
+        return;
+      }
+    } else if (!discard) {
+      if ((c != '\t' && (c < 32 || c > 126)) || used == sizeof(line) - 1) discard = true;
+      else line[used++] = static_cast<char>(c);
+    }
+  }
+}
+}  // namespace
+
+void setup() {
+  gpio_set_level(static_cast<gpio_num_t>(cfg::driverEnable), 0);
+  pinMode(cfg::driverEnable, OUTPUT);
+  lowerEnable();
+  Serial.setTxBufferSize(1024);
+  Serial.begin(cfg::serialBaud);
+  SimpleFOCDebug::enable(&Serial);
+  Serial.println("\nGM4108_SimpleFOC_Test | SAFE | EN bajo, objetivo cero.");
+  sensorBusReady = SPI.begin(cfg::encoderSck, cfg::encoderMiso, cfg::encoderMosi, -1);
+  if (sensorBusReady) sensor.init(&SPI);
+  else failSafe("Fallo SPI.begin()");
+  printHelp();
+}
+
+void loop() {
+  // Comprueba caducidad y latencia antes de aceptar otra autorización.
+  if (state == State::MOTOR_CONTROL) updateControl();
+  const uint32_t now = millis();
+  if (sensorBusReady && state != State::MOTOR_CONTROL && now - lastSensorAt >= cfg::sensorPeriodMs) {
+    lastSensorAt = now;
+    sensor.update();
+    if (state == State::READY && !sensor.healthy()) {
+      calibration = Calibration::Pending;
+      failSafe(lastFault);
+    }
+  }
+  pollSerial();
+
+  const uint32_t interval = state == State::SENSOR_TEST ? cfg::diagnosticIntervalMs : cfg::monitorIntervalMs;
+  if (millis() - lastReportAt >= interval) {
+    lastReportAt = millis();
+    report(true);
+  }
+}
