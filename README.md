@@ -26,9 +26,9 @@ Instala y verifica un **pull-down físico en EN** adecuado para el módulo y el 
 | Parámetro SimpleFOC | Valor inicial | Interpretación |
 |---|---:|---|
 | `driver.voltage_power_supply` | 8,00 V | Estimación del bus usada como divisor para calcular el ciclo útil. Ajustar a la tensión validada. |
-| `driver.voltage_limit` | 1,20 V | Máxima orden por salida PWM en el modelo del driver. Con bus configurado a 8,00 V equivale a 15 % de ciclo útil. |
-| `motor.voltage_limit` | 0,50 V | Magnitud máxima de la orden de eje q durante el control de velocidad. |
-| `motor.voltage_sensor_align` | 0,35 V | Magnitud de la orden usada al alinear. Una alineación fallida requiere revisar el banco antes de otro intento. |
+| `driver.voltage_limit` | 3,20 V | Máxima orden por salida PWM en el modelo del driver. Con bus configurado a 8,00 V equivale a 40 % de ciclo útil. |
+| `motor.voltage_limit` | 1,50 V | Magnitud máxima de la orden de eje q durante el control de velocidad. |
+| `motor.voltage_sensor_align` | 1,50 V | Magnitud de la orden usada al alinear. Una alineación fallida requiere revisar el banco antes de otro intento. |
 
 Los límites de tensión son valores provisionales de puesta en marcha. El PWM aplica pulsos del bus y las órdenes de tensión se traducen a ciclos útiles. Se usa PWM sinusoidal centrado, control FOC de par por tensión y lazo de velocidad, con un objetivo máximo inicial de **±1,0 rad/s** y una rampa de **0,50 rad/s²**. La velocidad del objetivo y la velocidad física se observan por separado.
 
@@ -58,13 +58,18 @@ El arranque entra en **SAFE** con EN bajo. `SENSOR` pasa a **SENSOR_TEST**. Tras
 | `INIT` | Prepara el PWM tras la prueba manual del encoder. |
 | `CALIBRATE` | Pide autorización para alinear si los permisos de configuración están confirmados. |
 | `CONFIRM` | Dentro de los siguientes 30 s, confirma que el motor está sujeto, libre, sin rueda ni carga, la fuente está correctamente configurada y la salida de potencia se ha activado intencionadamente. |
-| `START` | Habilita el control con objetivo cero y abre la autorización de 2 s. El control activo a cero puede aplicar par. |
+| `START` | Habilita el control manual con objetivo cero y abre la autorización de 5 s. El control activo a cero puede aplicar par. |
 | `V 1` / `V -1` / `V 0` | Cambia el objetivo en rad/s y renueva la autorización. `V 0` mantiene el control activo. |
 | `KEEP` | Renueva la autorización sin cambiar el objetivo. |
+| `TEST_SPEED` | Desde READY con FOC válido y encoder saludable, solicita `CONFIRM` para ejecutar una prueba automática de 7 s. |
 | `STOP` | Anula el objetivo y baja EN de inmediato al procesarse. Desde MOTOR_CONTROL conserva el FOC válido en READY. |
 | `DISABLE` | Baja EN, descarta la calibración y vuelve a SAFE. |
 
-Envía un `V` válido o `KEEP` aproximadamente **cada segundo** mientras quieras mantener el control. Pasados 2 s sin renovación, el objetivo baja a cero según la rampa y se baja EN al llegar a cero. Con los valores iniciales esa rampa tarda como máximo otros 2 s. Las renovaciones durante la parada por timeout se rechazan. Para rearmar, espera READY y envía un nuevo `START`.
+Cada `V` válido o `KEEP` abre otros **5 s** de control manual. Al vencer la autorización, el objetivo baja a cero según la rampa y el driver se deshabilita al llegar a cero. A ±1,0 rad/s la rampa dura como máximo otros 2 s. Las renovaciones durante esa parada se rechazan. Para rearmar, espera READY y envía un nuevo `START`.
+
+Para la prueba automática, envía `TEST_SPEED` y luego `CONFIRM` dentro de 30 s. El motor mantiene objetivo 0 rad/s durante 1 s, recibe una consigna de +0,2 rad/s durante 5 s y vuelve a consigna cero durante 1 s. El objetivo efectivo usa la rampa de 0,50 rad/s² en ambos cambios. Al llegar el plazo de 7 s el lazo corta EN y vuelve a READY. La prueba funciona sin `KEEP`. `STOP` corta inmediatamente y conserva FOC en READY. `DISABLE` corta, invalida la calibración y vuelve a SAFE. Un fallo del encoder o del lazo también corta y vuelve a SAFE.
+
+La prueba emite telemetría cada 200 ms con consigna, rampa, velocidad estimada en el sentido calibrado, ángulo bruto del encoder, estado del PWM y de EN, y fase. Si se llena el búfer de serie, se omite esa muestra para mantener el lazo FOC. El resumen indica el desplazamiento angular neto acumulado, la velocidad media con signo, el pico absoluto de velocidad y el motivo de finalización.
 
 Durante la calibración, una lectura rechazada del encoder o la recepción de `STOP` o `DISABLE` baja EN, pone el PWM a cero y bloquea la energización durante el resto del intento. `motor.init()` y `motor.initFOC()` contienen esperas bloqueantes en SimpleFOC 2.4.0. Si la incidencia ocurre durante una espera, se detecta al retomar las lecturas del encoder o la atención de la consola. Ante cualquier anomalía utiliza el **corte físico de potencia** inmediatamente.
 

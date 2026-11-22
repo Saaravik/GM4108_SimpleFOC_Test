@@ -14,6 +14,26 @@
 namespace {
 enum class State { SAFE, SENSOR_TEST, READY, CALIBRATION, MOTOR_CONTROL };
 enum class Calibration { Pending, Passed, Failed, Aborted };
+enum class Confirmation { None, Calibration, SpeedTest };
+enum class SpeedTestPhase { Inactive, InitialHold, Run, FinalHold };
+
+constexpr float speedTestTarget = 0.2f;
+constexpr uint32_t speedTestRunAtUs = 1000000;
+constexpr uint32_t speedTestStopAtUs = speedTestRunAtUs + 5000000;
+constexpr uint32_t speedTestEndAtUs = speedTestStopAtUs + 1000000;
+constexpr uint32_t speedTestReportUs = 200000;
+
+struct SpeedTest {
+  SpeedTestPhase phase = SpeedTestPhase::Inactive;
+  uint32_t startedAt = 0;
+  uint32_t nextReportUs = speedTestReportUs;
+  uint32_t measuredUs = 0;
+  float initialAngle = 0;
+  float displacement = 0;
+  float peakSpeed = 0;
+
+  bool active() const { return phase != SpeedTestPhase::Inactive; }
+};
 
 State state = State::SAFE;
 Calibration calibration = Calibration::Pending;
@@ -22,7 +42,7 @@ BLDCMotor motor(cfg::polePairs);
 bool driverReady = false;
 bool sensorBusReady = false;
 bool enableRequested = false;
-bool confirmationPending = false;
+Confirmation pendingConfirmation = Confirmation::None;
 bool calibrationAborted = false;
 bool calibrationSensorFault = false;
 bool timeoutStopping = false;
@@ -34,6 +54,7 @@ uint32_t lastControlAt = 0;
 uint32_t lastSensorAt = 0;
 uint32_t lastReportAt = 0;
 const char* lastFault = "-";
+SpeedTest speedTest;
 
 void pollSerial();
 
@@ -288,13 +309,24 @@ void deenergize() {
   motor.target = 0;
   motor.current_sp = 0;
   timeoutStopping = false;
-  confirmationPending = false;
+  pendingConfirmation = Confirmation::None;
+}
+
+void reportSpeedTestResult(const char* reason) {
+  if (!speedTest.active()) return;
+  speedTest.phase = SpeedTestPhase::Inactive;
+  const float mean = speedTest.measuredUs > 0
+                         ? speedTest.displacement / (speedTest.measuredUs * 1e-6f) : 0;
+  Serial.printf("TEST_SPEED FIN | desplazamiento=%.4f rad media=%.3f rad/s "
+                "max_abs=%.3f rad/s | motivo=%s | %s EN=LOW\n",
+                speedTest.displacement, mean, speedTest.peakSpeed, reason, stateName());
 }
 
 void failSafe(const char* reason) {
   deenergize();
   state = State::SAFE;
   lastFault = reason;
+  reportSpeedTestResult(reason);
   Serial.printf("SAFE | %s\n", lastFault);
 }
 
@@ -351,7 +383,7 @@ void runCalibration() {
   state = State::CALIBRATION;
   calibrationAborted = false;
   calibrationSensorFault = false;
-  confirmationPending = false;
+  pendingConfirmation = Confirmation::None;
   motor.linkSensor(&sensor);
   motor.controller = MotionControlType::velocity;
   motor.torque_controller = TorqueControlType::voltage;
@@ -405,19 +437,60 @@ void runCalibration() {
   }
 }
 
-void startControl() {
+bool mayStartControl(bool automatic) {
   if (state != State::READY || calibration != Calibration::Passed || !sensor.healthy()) {
-    Serial.println("START requiere READY, FOC OK y encoder valido.");
-    return;
+    Serial.printf("%s requiere READY, FOC OK y encoder valido.\n", automatic ? "TEST_SPEED" : "START");
+    return false;
   }
+  if (automatic && speedTestTarget > cfg::speedLimit) {
+    Serial.println("TEST_SPEED excede el limite de velocidad configurado.");
+    return false;
+  }
+  return true;
+}
+
+void startControl(bool automatic) {
+  if (!mayStartControl(automatic)) return;
   deenergize();
+  if (automatic) {
+    speedTest = {};
+    speedTest.initialAngle = sensor.getAngle();
+    speedTest.phase = SpeedTestPhase::InitialHold;
+    speedTest.startedAt = micros();
+  }
   state = State::MOTOR_CONTROL;
   motor.enable();
   enableRequested = true;
   lastControlAt = micros();
   lastAuthorizationAt = millis();
-  Serial.printf("MOTOR_CONTROL | objetivo 0. Renovar con V <rad/s> o KEEP antes de %lu ms.\n",
-                static_cast<unsigned long>(cfg::commandTimeoutMs));
+  if (!automatic) {
+    Serial.printf("MOTOR_CONTROL | objetivo 0. Renovar con V <rad/s> o KEEP antes de %lu ms.\n",
+                  static_cast<unsigned long>(cfg::commandTimeoutMs));
+  }
+}
+
+void updateSpeedTestMeasurements(uint32_t elapsedUs) {
+  const float direction = static_cast<float>(motor.sensor_direction);
+  const float speed = direction * sensor.getVelocity();
+  speedTest.measuredUs = elapsedUs;
+  speedTest.displacement = direction * (sensor.getAngle() - speedTest.initialAngle);
+  speedTest.peakSpeed = fmaxf(speedTest.peakSpeed, fabsf(speed));
+  if (elapsedUs < speedTest.nextReportUs) return;
+  speedTest.nextReportUs = (elapsedUs / speedTestReportUs + 1) * speedTestReportUs;
+
+  const char* phase = "cero_final";
+  if (speedTest.phase == SpeedTestPhase::InitialHold) phase = "cero_inicial";
+  else if (speedTest.phase == SpeedTestPhase::Run) phase = "velocidad";
+  char message[176];
+  const int length = snprintf(message, sizeof(message),
+                              "TEST_SPEED | t=%lu ms fase=%s obj=%.2f rampa=%.2f vel=%.3f rad/s "
+                              "ang=%.2f deg PWM=%s EN=%s\n",
+                              static_cast<unsigned long>(elapsedUs / 1000), phase, requestedSpeed, rampedSpeed,
+                              speed, sensor.rawCount * (360.0f / (1 << cfg::encoderBits)),
+                              driverReady ? "listo" : "pendiente", enableRequested ? "HIGH" : "LOW");
+  if (length > 0 && length < static_cast<int>(sizeof(message)) && Serial.availableForWrite() >= length) {
+    Serial.write(reinterpret_cast<const uint8_t*>(message), length);
+  }
 }
 
 void updateControl() {
@@ -429,7 +502,23 @@ void updateControl() {
     failSafe("Intervalo de control excedido");
     return;
   }
-  if (!timeoutStopping && millis() - lastAuthorizationAt >= cfg::commandTimeoutMs) {
+  const uint32_t testElapsedUs = nowUs - speedTest.startedAt;
+  if (speedTest.active()) {
+    if (testElapsedUs >= speedTestEndAtUs) {
+      if (rampedSpeed != 0) {
+        calibration = Calibration::Pending;
+        failSafe("TEST_SPEED: plazo agotado antes de completar la rampa");
+      } else {
+        deenergize();
+        state = State::READY;
+        reportSpeedTestResult("secuencia completada");
+      }
+      return;
+    }
+    if (testElapsedUs >= speedTestStopAtUs) speedTest.phase = SpeedTestPhase::FinalHold;
+    else if (testElapsedUs >= speedTestRunAtUs) speedTest.phase = SpeedTestPhase::Run;
+    requestedSpeed = speedTest.phase == SpeedTestPhase::Run ? speedTestTarget : 0;
+  } else if (!timeoutStopping && millis() - lastAuthorizationAt >= cfg::commandTimeoutMs) {
     requestedSpeed = 0;
     timeoutStopping = true;
     lastFault = "Timeout de comandos";
@@ -453,6 +542,7 @@ void updateControl() {
     return;
   }
   motor.move();
+  if (speedTest.active()) updateSpeedTestMeasurements(testElapsedUs);
 }
 
 void report(bool periodic) {
@@ -484,10 +574,28 @@ void report(bool periodic) {
   }
 }
 
+void printCommandMessage(const char* message) {
+  // Durante TEST_SPEED, una consola saturada no puede retrasar el lazo FOC.
+  if (!speedTest.active() || Serial.availableForWrite() >= static_cast<int>(strlen(message))) {
+    Serial.print(message);
+  }
+}
+
 void printHelp() {
-  Serial.println("HELP | STATUS | SPI_BOOT | SENSOR | INIT | CALIBRATE | CONFIRM | START\n"
-                 "V <rad/s> | KEEP | STOP | DISABLE\n"
-                 "Para empezar: salida KORAD apagada, SENSOR y giro manual.");
+  printCommandMessage("HELP | STATUS | SPI_BOOT | SENSOR | INIT | CALIBRATE | CONFIRM | START\n"
+                      "V <rad/s> | KEEP | TEST_SPEED | STOP | DISABLE\n"
+                      "Manual: START, V valido o KEEP autorizan 5 s; al caducar, rampa a cero.\n"
+                      "Test: desde READY con FOC OK, TEST_SPEED y luego CONFIRM. Dura 7 s.\n"
+                      "Para empezar: salida KORAD apagada, SENSOR y giro manual.\n");
+}
+
+void requestConfirmation(Confirmation action) {
+  pendingConfirmation = action;
+  confirmationAt = millis();
+  Serial.printf("%s | CONFIRM antes de %.1f s solo si el motor esta sujeto, libre, sin rueda ni carga,\n"
+                "la fuente esta correctamente configurada y ha activado su salida intencionadamente.\n",
+                action == Confirmation::Calibration ? "CALIBRATE" : "TEST_SPEED",
+                cfg::confirmationTimeoutMs * 0.001);
 }
 
 void setSpeed(const char* argument) {
@@ -525,11 +633,14 @@ void handleCommand(char* command) {
     } else if (state == State::MOTOR_CONTROL) {
       state = State::READY;
     }
+    reportSpeedTestResult(disable ? "DISABLE" : "STOP");
     Serial.printf("%s | objetivo 0, EN bajo.\n", stateName());
   } else if (strcmp(command, "HELP") == 0) {
     printHelp();
   } else if (strcmp(command, "STATUS") == 0) {
-    report(false);
+    report(speedTest.active());
+  } else if (speedTest.active()) {
+    printCommandMessage("TEST_SPEED activo. Use STOP o DISABLE para interrumpir.\n");
   } else if (strcmp(command, "SPI_BOOT") == 0 && state != State::MOTOR_CONTROL) {
     if (sensorBusReady) sensor.printStartupTrace();
     else Serial.println("SPI sin inicializar.");
@@ -546,19 +657,22 @@ void handleCommand(char* command) {
                   cfg::manualTravelRad * (360.0f / _2PI));
   } else if (strcmp(command, "INIT") == 0) {
     prepareDriver();
-  } else if (strcmp(command, "CALIBRATE") == 0 && mayCalibrate()) {
-    confirmationPending = true;
-    confirmationAt = millis();
-    Serial.printf("CONFIRM antes de %.1f s solo si el motor esta sujeto, libre, sin rueda ni carga,\n"
-                  "la fuente esta correctamente configurada y ha activado su salida intencionadamente.\n",
-                  cfg::confirmationTimeoutMs * 0.001);
+  } else if (strcmp(command, "CALIBRATE") == 0) {
+    if (mayCalibrate()) requestConfirmation(Confirmation::Calibration);
+  } else if (strcmp(command, "TEST_SPEED") == 0) {
+    if (mayStartControl(true)) requestConfirmation(Confirmation::SpeedTest);
   } else if (strcmp(command, "CONFIRM") == 0) {
-    const bool valid = confirmationPending && millis() - confirmationAt < cfg::confirmationTimeoutMs;
-    confirmationPending = false;
-    if (!valid) Serial.println("Confirmacion ausente o caducada. Use CALIBRATE.");
-    else if (mayCalibrate()) runCalibration();
+    const Confirmation action = pendingConfirmation;
+    pendingConfirmation = Confirmation::None;
+    if (action == Confirmation::None || millis() - confirmationAt >= cfg::confirmationTimeoutMs) {
+      Serial.println("Confirmacion ausente o caducada. Use CALIBRATE o TEST_SPEED.");
+    } else if (action == Confirmation::SpeedTest) {
+      startControl(true);
+    } else if (mayCalibrate()) {
+      runCalibration();
+    }
   } else if (strcmp(command, "START") == 0) {
-    startControl();
+    startControl(false);
   } else if ((command[0] == 'V' && (command[1] == ' ' || command[1] == '\t')) ||
              strcmp(command, "KEEP") == 0) {
     if (state != State::MOTOR_CONTROL || timeoutStopping) {
@@ -568,7 +682,7 @@ void handleCommand(char* command) {
     } else {
       lastAuthorizationAt = millis();
     }
-  } else if (strcmp(command, "CALIBRATE") != 0) {
+  } else {
     Serial.println("Comando no disponible. Use HELP.");
   }
 }
@@ -582,7 +696,7 @@ void pollSerial() {
     if (c == '\r' || c == '\n') {
       const bool valid = !discard && used != 0;
       if (!discard) line[used] = '\0';
-      else if (state != State::CALIBRATION) Serial.println("Linea serie invalida o demasiado larga.");
+      else if (state != State::CALIBRATION) printCommandMessage("Linea serie invalida o demasiado larga.\n");
       used = 0;
       discard = false;
       if (valid) {
@@ -630,7 +744,7 @@ void loop() {
   pollSerial();
 
   const uint32_t interval = state == State::SENSOR_TEST ? cfg::diagnosticIntervalMs : cfg::monitorIntervalMs;
-  if (millis() - lastReportAt >= interval) {
+  if (!speedTest.active() && millis() - lastReportAt >= interval) {
     lastReportAt = millis();
     report(true);
   }

@@ -1,0 +1,108 @@
+23:55:51.493 > :2
+23:55:51.493 > load:0x3fff0030,len:[+��0x40078000,len:15632
+23:55:51.494 > load:0x40080400,len:3164
+23:55:51.497 > entry 0x4008059c
+23:55:51.668 > 
+23:55:51.668 > GM4108_SimpleFOC_Test | SAFE | EN bajo, objetivo cero.
+23:55:51.673 > HELP | STATUS | SPI_BOOT | SENSOR | INIT | CALIBRATE | CONFIRM | START
+23:55:51.679 > V <rad/s> | KEEP | STOP | DISABLE
+23:55:51.682 > Para empezar: salida KORAD apagada, SENSOR y giro manual.
+23:55:51.687 > SPI_BOOT | modo=1 reloj=1000000 Hz CS=27 | par=OK o IMPAR
+23:55:51.692 > SPI_BOOT #01 t=19049us init muestra=1 TX=0xFFFF parTX=OK | RX=0xC000 respTX=-- parRX=OK EF=1
+23:55:51.700 > SPI_BOOT #02 t=19212us init muestra=1 TX=0x7FFD parTX=OK | RX=0xD0A2 respTX=0xFFFF parRX=OK EF=1
+23:55:51.708 > SPI_BOOT #03 t=19241us init muestra=1 TX=0x0000 parTX=OK | RX=0x419F respTX=0x7FFD parRX=OK EF=1
+23:55:51.717 > SPI_BOOT #04 t=19283us init muestra=1 TX=0x4001 parTX=OK | RX=0xC000 respTX=0x0000 parRX=OK EF=1
+23:55:51.725 > SPI_BOOT #05 t=19308us init muestra=1 TX=0x0000 parTX=OK | RX=0x4004 respTX=0x4001 parRX=OK EF=1
+23:55:51.733 > SPI_BOOT #06 t=19436us init muestra=2 TX=0xFFFF parTX=OK | RX=0x0000 respTX=0x0000 parRX=OK EF=0
+23:55:51.742 > SPI_BOOT #07 t=19492us init muestra=2 TX=0x7FFD parTX=OK | RX=0x909F respTX=0xFFFF parRX=OK EF=0
+23:55:51.750 > SPI_BOOT #08 t=19517us init muestra=2 TX=0x0000 parTX=OK | RX=0x819F respTX=0x7FFD parRX=OK EF=0
+23:55:51.758 > SPI_BOOT #09 t=20383us init muestra=3 TX=0xFFFF parTX=OK | RX=0x0000 respTX=0x0000 parRX=OK EF=0
+23:55:51.768 > SPI_BOOT #10 t=20440us init muestra=3 TX=0x7FFD parTX=OK | RX=0x109E respTX=0xFFFF parRX=OK EF=0
+23:55:51.775 > SPI_BOOT #11 t=20464us init muestra=3 TX=0x0000 parTX=OK | RX=0x819F respTX=0x7FFD parRX=OK EF=0
+23:55:51.783 > SPI_BOOT #12 t=20557us init muestra=4 TX=0xFFFF parTX=OK | RX=0x0000 respTX=0x0000 parRX=OK EF=0
+23:55:51.792 > SPI_BOOT #13 t=20614us init muestra=4 TX=0x7FFD parTX=OK | RX=0x109E respTX=0xFFFF parRX=OK EF=0
+23:55:51.800 > SPI_BOOT #14 t=20639us init muestra=4 TX=0x0000 parTX=OK | RX=0x819F respTX=0x7FFD parRX=OK EF=0
+23:55:51.809 > SPI_BOOT #15 t=20842us loop muestra=5 TX=0xFFFF parTX=OK | RX=0x0000 respTX=0x0000 parRX=OK EF=0
+23:55:51.817 > SPI_BOOT #16 t=20898us loop muestra=5 TX=0x7FFD parTX=OK | RX=0x909F respTX=0xFFFF parRX=OK EF=0
+23:55:51.826 > SPI_BOOT #17 t=20923us loop muestra=5 TX=0x0000 parTX=OK | RX=0x819F respTX=0x7FFD parRX=OK EF=0
+23:55:51.834 > SPI_BOOT #18 t=25040us loop muestra=6 TX=0xFFFF parTX=OK | RX=0x0000 respTX=0x0000 parRX=OK EF=0
+23:55:51.842 > SPI_BOOT #19 t=25112us loop muestra=6 TX=0x7FFD parTX=OK | RX=0x909C respTX=0xFFFF parRX=OK EF=0
+23:55:51.850 > SPI_BOOT #20 t=25137us loop muestra=6 TX=0x0000 parTX=OK | RX=0x819F respTX=0x7FFD parRX=OK EF=0
+23:55:51.859 > SPI_BOOT #21 t=30028us loop muestra=7 TX=0xFFFF parTX=OK | RX=0x0000 respTX=0x0000 parRX=OK EF=0
+23:55:51.867 > SPI_BOOT #22 t=30084us loop muestra=7 TX=0x7FFD parTX=OK | RX=0x10A1 respTX=0xFFFF parRX=OK EF=0
+23:55:51.876 > SPI_BOOT #23 t=30109us loop muestra=7 TX=0x0000 parTX=OK | RX=0x819F respTX=0x7FFD parRX=OK EF=0
+23:55:51.884 > SPI_BOOT #24 t=35039us loop muestra=8 TX=0xFFFF parTX=OK | RX=0x0000 respTX=0x0000 parRX=OK EF=0
+23:55:51.892 > SPI_BOOT #25 t=35100us loop muestra=8 TX=0x7FFD parTX=OK | RX=0x909F respTX=0xFFFF parRX=OK EF=0
+23:55:51.901 > SPI_BOOT #26 t=35124us loop muestra=8 TX=0x0000 parTX=OK | RX=0x819F respTX=0x7FFD parRX=OK EF=0
+23:55:52.651 > SAFE | ang=93.56 deg bruto=4258 vel=0.000 rad/s obj=0.00 rampa=0.00 | bus=8.00 V lim motor=1.50 V driver=3.20 V alin=1.50 V | PWM=pendiente EN pedido=LOW | FOC=pendiente | giro=pendiente paridad=0 EF=1 diag=0 salto=0 regDiag=0x019F regErr=4 | ultimo=SPI: paridad o EF
+23:55:53.650 > SAFE | ang=93.47 deg bruto=4254 vel=0.000 rad/s obj=0.00 rampa=0.00 | bus=8.00 V lim motor=1.50 V driver=3.20 V alin=1.50 V | PWM=pendiente EN pedido=LOW | FOC=pendiente | giro=pendiente paridad=0 EF=1 diag=0 salto=0 regDiag=0x019F regErr=4 | ultimo=SPI: paridad o EF
+23:55:54.650 > SAFE | ang=93.49 deg bruto=4255 vel=0.019 rad/s obj=0.00 rampa=0.00 | bus=8.00 V lim motor=1.50 V driver=3.20 V alin=1.50 V | PWM=pendiente EN pedido=LOW | FOC=pendiente | giro=pendiente paridad=0 EF=1 diag=0 salto=0 regDiag=0x019F regErr=4 | ultimo=SPI: paridad o EF
+23:55:55.650 > SAFE | ang=93.47 deg bruto=4254 vel=-0.038 rad/s obj=0.00 rampa=0.00 | bus=8.00 V lim motor=1.50 V driver=3.20 V alin=1.50 V | PWM=pendiente EN pedido=LOW | FOC=pendiente | giro=pendiente paridad=0 EF=1 diag=0 salto=0 regDiag=0x019F regErr=4 | ultimo=SPI: paridad o EF
+23:55:56.650 > SAFE | ang=93.49 deg bruto=4255 vel=-0.077 rad/s obj=0.00 rampa=0.00 | bus=8.00 V lim motor=1.50 V driver=3.20 V alin=1.50 V | PWM=pendiente EN pedido=LOW | FOC=pendiente | giro=pendiente paridad=0 EF=1 diag=0 salto=0 regDiag=0x019F regErr=4 | ultimo=SPI: paridad o EF
+23:55:57.650 > SAFE | ang=93.47 deg bruto=4254 vel=0.058 rad/s obj=0.00 rampa=0.00 | bus=8.00 V lim motor=1.50 V driver=3.20 V alin=1.50 V | PWM=pendiente EN pedido=LOW | FOC=pendiente | giro=pendiente paridad=0 EF=1 diag=0 salto=0 regDiag=0x019F regErr=4 | ultimo=SPI: paridad o EF
+23:55:58.651 > SAFE | ang=93.47 deg bruto=4254 vel=-0.058 rad/s obj=0.00 rampa=0.00 | bus=8.00 V lim motor=1.50 V driver=3.20 V alin=1.50 V | PWM=pendiente EN pedido=LOW | FOC=pendiente | giro=pendiente paridad=0 EF=1 diag=0 salto=0 regDiag=0x019F regErr=4 | ultimo=SPI: paridad o EF
+23:55:59.651 > SAFE | ang=93.47 deg bruto=4254 vel=-0.038 rad/s obj=0.00 rampa=0.00 | bus=8.00 V lim motor=1.50 V driver=3.20 V alin=1.50 V | PWM=pendiente EN pedido=LOW | FOC=pendiente | giro=pendiente paridad=0 EF=1 diag=0 salto=0 regDiag=0x019F regErr=4 | ultimo=SPI: paridad o EF
+23:56:00.650 > SAFE | ang=93.54 deg bruto=4257 vel=0.038 rad/s obj=0.00 rampa=0.00 | bus=8.00 V lim motor=1.50 V driver=3.20 V alin=1.50 V | PWM=pendiente EN pedido=LOW | FOC=pendiente | giro=pendiente paridad=0 EF=1 diag=0 salto=0 regDiag=0x019F regErr=4 | ultimo=SPI: paridad o EF
+23:56:01.651 > SAFE | ang=93.52 deg bruto=4256 vel=0.038 rad/s obj=0.00 rampa=0.00 | bus=8.00 V lim motor=1.50 V driver=3.20 V alin=1.50 V | PWM=pendiente EN pedido=LOW | FOC=pendiente | giro=pendiente paridad=0 EF=1 diag=0 salto=0 regDiag=0x019F regErr=4 | ultimo=SPI: paridad o EF
+23:56:02.651 > SAFE | ang=93.54 deg bruto=4257 vel=0.058 rad/s obj=0.00 rampa=0.00 | bus=8.00 V lim motor=1.50 V driver=3.20 V alin=1.50 V | PWM=pendiente EN pedido=LOW | FOC=pendiente | giro=pendiente paridad=0 EF=1 diag=0 salto=0 regDiag=0x019F regErr=4 | ultimo=SPI: paridad o EF
+23:56:03.651 > SAFE | ang=93.47 deg bruto=4254 vel=-0.058 rad/s obj=0.00 rampa=0.00 | bus=8.00 V lim motor=1.50 V driver=3.20 V alin=1.50 V | PWM=pendiente EN pedido=LOW | FOC=pendiente | giro=pendiente paridad=0 EF=1 diag=0 salto=0 regDiag=0x019F regErr=4 | ultimo=SPI: paridad o EF
+23:56:03.977 > SENSOR_TEST | EN bajo. Gire el rotor a mano al menos 5.0 grados.
+23:56:04.151 > SENSOR_TEST | ang=93.47 deg bruto=4254 vel=-0.038 rad/s obj=0.00 rampa=0.00 | bus=8.00 V lim motor=1.50 V driver=3.20 V alin=1.50 V | PWM=pendiente EN pedido=LOW | FOC=pendiente | giro=pendiente paridad=0 EF=1 diag=0 salto=0 regDiag=0x019F regErr=4 | ultimo=SPI: paridad o EF
+23:56:04.650 > SENSOR_TEST | ang=93.54 deg bruto=4257 vel=0.038 rad/s obj=0.00 rampa=0.00 | bus=8.00 V lim motor=1.50 V driver=3.20 V alin=1.50 V | PWM=pendiente EN pedido=LOW | FOC=pendiente | giro=pendiente paridad=0 EF=1 diag=0 salto=0 regDiag=0x019F regErr=4 | ultimo=SPI: paridad o EF
+23:56:05.150 > SENSOR_TEST | ang=93.45 deg bruto=4253 vel=0.000 rad/s obj=0.00 rampa=0.00 | bus=8.00 V lim motor=1.50 V driver=3.20 V alin=1.50 V | PWM=pendiente EN pedido=LOW | FOC=pendiente | giro=pendiente paridad=0 EF=1 diag=0 salto=0 regDiag=0x019F regErr=4 | ultimo=SPI: paridad o EF
+23:56:05.651 > SENSOR_TEST | ang=93.54 deg bruto=4257 vel=0.000 rad/s obj=0.00 rampa=0.00 | bus=8.00 V lim motor=1.50 V driver=3.20 V alin=1.50 V | PWM=pendiente EN pedido=LOW | FOC=pendiente | giro=pendiente paridad=0 EF=1 diag=0 salto=0 regDiag=0x019F regErr=4 | ultimo=SPI: paridad o EF
+23:56:06.151 > SENSOR_TEST | ang=93.52 deg bruto=4256 vel=-0.058 rad/s obj=0.00 rampa=0.00 | bus=8.00 V lim motor=1.50 V driver=3.20 V alin=1.50 V | PWM=pendiente EN pedido=LOW | FOC=pendiente | giro=pendiente paridad=0 EF=1 diag=0 salto=0 regDiag=0x019F regErr=4 | ultimo=SPI: paridad o EF
+23:56:06.651 > SENSOR_TEST | ang=8.53 deg bruto=388 vel=-4.525 rad/s obj=0.00 rampa=0.00 | bus=8.00 V lim motor=1.50 V driver=3.20 V alin=1.50 V | PWM=pendiente EN pedido=LOW | FOC=pendiente | giro=si paridad=0 EF=1 diag=0 salto=0 regDiag=0x019F regErr=4 | ultimo=SPI: paridad o EF
+23:56:07.151 > SENSOR_TEST | ang=322.40 deg bruto=14673 vel=0.518 rad/s obj=0.00 rampa=0.00 | bus=8.00 V lim motor=1.50 V driver=3.20 V alin=1.50 V | PWM=pendiente EN pedido=LOW | FOC=pendiente | giro=si paridad=0 EF=1 diag=0 salto=0 regDiag=0x019F regErr=4 | ultimo=SPI: paridad o EF
+23:56:07.650 > SENSOR_TEST | ang=70.86 deg bruto=3225 vel=2.646 rad/s obj=0.00 rampa=0.00 | bus=8.00 V lim motor=1.50 V driver=3.20 V alin=1.50 V | PWM=pendiente EN pedido=LOW | FOC=pendiente | giro=si paridad=0 EF=1 diag=0 salto=0 regDiag=0x019F regErr=4 | ultimo=SPI: paridad o EF
+23:56:08.150 > SENSOR_TEST | ang=191.12 deg bruto=8698 vel=2.339 rad/s obj=0.00 rampa=0.00 | bus=8.00 V lim motor=1.50 V driver=3.20 V alin=1.50 V | PWM=pendiente EN pedido=LOW | FOC=pendiente | giro=si paridad=0 EF=1 diag=0 salto=0 regDiag=0x019F regErr=4 | ultimo=SPI: paridad o EF
+23:56:08.650 > SENSOR_TEST | ang=178.42 deg bruto=8120 vel=-5.618 rad/s obj=0.00 rampa=0.00 | bus=8.00 V lim motor=1.50 V driver=3.20 V alin=1.50 V | PWM=pendiente EN pedido=LOW | FOC=pendiente | giro=si paridad=0 EF=1 diag=0 salto=0 regDiag=0x019F regErr=4 | ultimo=SPI: paridad o EF
+23:56:09.151 > SENSOR_TEST | ang=48.10 deg bruto=2189 vel=-5.235 rad/s obj=0.00 rampa=0.00 | bus=8.00 V lim motor=1.50 V driver=3.20 V alin=1.50 V | PWM=pendiente EN pedido=LOW | FOC=pendiente | giro=si paridad=0 EF=1 diag=0 salto=0 regDiag=0x019F regErr=4 | ultimo=SPI: paridad o EF
+23:56:09.651 > SENSOR_TEST | ang=257.19 deg bruto=11705 vel=-4.851 rad/s obj=0.00 rampa=0.00 | bus=8.00 V lim motor=1.50 V driver=3.20 V alin=1.50 V | PWM=pendiente EN pedido=LOW | FOC=pendiente | giro=si paridad=0 EF=1 diag=0 salto=0 regDiag=0x019F regErr=4 | ultimo=SPI: paridad o EF
+23:56:10.151 > SENSOR_TEST | ang=274.50 deg bruto=12493 vel=4.314 rad/s obj=0.00 rampa=0.00 | bus=8.00 V lim motor=1.50 V driver=3.20 V alin=1.50 V | PWM=pendiente EN pedido=LOW | FOC=pendiente | giro=si paridad=0 EF=1 diag=0 salto=0 regDiag=0x019F regErr=4 | ultimo=SPI: paridad o EF
+23:56:10.650 > SENSOR_TEST | ang=142.98 deg bruto=6507 vel=7.171 rad/s obj=0.00 rampa=0.00 | bus=8.00 V lim motor=1.50 V driver=3.20 V alin=1.50 V | PWM=pendiente EN pedido=LOW | FOC=pendiente | giro=si paridad=0 EF=1 diag=0 salto=0 regDiag=0x019F regErr=4 | ultimo=SPI: paridad o EF
+23:56:11.150 > SENSOR_TEST | ang=79.69 deg bruto=3627 vel=-6.615 rad/s obj=0.00 rampa=0.00 | bus=8.00 V lim motor=1.50 V driver=3.20 V alin=1.50 V | PWM=pendiente EN pedido=LOW | FOC=pendiente | giro=si paridad=0 EF=1 diag=0 salto=0 regDiag=0x019F regErr=4 | ultimo=SPI: paridad o EF
+23:56:11.651 > SENSOR_TEST | ang=320.78 deg bruto=14599 vel=-0.019 rad/s obj=0.00 rampa=0.00 | bus=8.00 V lim motor=1.50 V driver=3.20 V alin=1.50 V | PWM=pendiente EN pedido=LOW | FOC=pendiente | giro=si paridad=0 EF=1 diag=0 salto=0 regDiag=0x019F regErr=4 | ultimo=SPI: paridad o EF
+23:56:12.150 > SENSOR_TEST | ang=320.84 deg bruto=14602 vel=0.058 rad/s obj=0.00 rampa=0.00 | bus=8.00 V lim motor=1.50 V driver=3.20 V alin=1.50 V | PWM=pendiente EN pedido=LOW | FOC=pendiente | giro=si paridad=0 EF=1 diag=0 salto=0 regDiag=0x019F regErr=4 | ultimo=SPI: paridad o EF
+23:56:12.651 > SENSOR_TEST | ang=320.82 deg bruto=14601 vel=0.058 rad/s obj=0.00 rampa=0.00 | bus=8.00 V lim motor=1.50 V driver=3.20 V alin=1.50 V | PWM=pendiente EN pedido=LOW | FOC=pendiente | giro=si paridad=0 EF=1 diag=0 salto=0 regDiag=0x019F regErr=4 | ultimo=SPI: paridad o EF
+23:56:13.150 > SENSOR_TEST | ang=320.80 deg bruto=14600 vel=-0.038 rad/s obj=0.00 rampa=0.00 | bus=8.00 V lim motor=1.50 V driver=3.20 V alin=1.50 V | PWM=pendiente EN pedido=LOW | FOC=pendiente | giro=si paridad=0 EF=1 diag=0 salto=0 regDiag=0x019F regErr=4 | ultimo=SPI: paridad o EF
+23:56:13.584 > ESP32-DRV: Configuring 3PWM in group: 0 on timer: 0
+23:56:13.589 > ESP32-DRV: Configuring 2 operators.
+23:56:13.593 > ESP32-DRV: Configuring 3 comparators.
+23:56:13.596 > ESP32-DRV: Configuring 3 generators.
+23:56:13.600 > ESP32-DRV: Configuring center-aligned pwm.
+23:56:13.607 > ESP32-DRV: Enabling timer: 0
+23:56:13.607 > ESP32-DRV: MCPWM configured!
+23:56:13.610 > READY | PWM inicializado en ESP32, EN bajo. CALIBRATE solicita confirmacion.
+23:56:14.151 > READY | ang=320.80 deg bruto=14600 vel=0.038 rad/s obj=0.00 rampa=0.00 | bus=8.00 V lim motor=1.50 V driver=3.20 V alin=1.50 V | PWM=listo EN pedido=LOW | FOC=pendiente | giro=si paridad=0 EF=1 diag=0 salto=0 regDiag=0x019F regErr=4 | ultimo=SPI: paridad o EF
+23:56:15.150 > READY | ang=320.80 deg bruto=14600 vel=0.000 rad/s obj=0.00 rampa=0.00 | bus=8.00 V lim motor=1.50 V driver=3.20 V alin=1.50 V | PWM=listo EN pedido=LOW | FOC=pendiente | giro=si paridad=0 EF=1 diag=0 salto=0 regDiag=0x019F regErr=4 | ultimo=SPI: paridad o EF
+23:56:16.150 > READY | ang=320.84 deg bruto=14602 vel=0.000 rad/s obj=0.00 rampa=0.00 | bus=8.00 V lim motor=1.50 V driver=3.20 V alin=1.50 V | PWM=listo EN pedido=LOW | FOC=pendiente | giro=si paridad=0 EF=1 diag=0 salto=0 regDiag=0x019F regErr=4 | ultimo=SPI: paridad o EF
+23:56:17.150 > READY | ang=320.80 deg bruto=14600 vel=0.038 rad/s obj=0.00 rampa=0.00 | bus=8.00 V lim motor=1.50 V driver=3.20 V alin=1.50 V | PWM=listo EN pedido=LOW | FOC=pendiente | giro=si paridad=0 EF=1 diag=0 salto=0 regDiag=0x019F regErr=4 | ultimo=SPI: paridad o EF
+23:56:18.151 > READY | ang=320.82 deg bruto=14601 vel=0.038 rad/s obj=0.00 rampa=0.00 | bus=8.00 V lim motor=1.50 V driver=3.20 V alin=1.50 V | PWM=listo EN pedido=LOW | FOC=pendiente | giro=si paridad=0 EF=1 diag=0 salto=0 regDiag=0x019F regErr=4 | ultimo=SPI: paridad o EF
+23:56:19.150 > READY | ang=320.84 deg bruto=14602 vel=0.019 rad/s obj=0.00 rampa=0.00 | bus=8.00 V lim motor=1.50 V driver=3.20 V alin=1.50 V | PWM=listo EN pedido=LOW | FOC=pendiente | giro=si paridad=0 EF=1 diag=0 salto=0 regDiag=0x019F regErr=4 | ultimo=SPI: paridad o EF
+23:56:19.898 > CONFIRM antes de 30.0 s solo si el motor esta sujeto, libre, sin rueda ni carga,
+23:56:19.905 > la fuente esta correctamente configurada y ha activado su salida intencionadamente.
+23:56:20.150 > READY | ang=320.80 deg bruto=14600 vel=0.019 rad/s obj=0.00 rampa=0.00 | bus=8.00 V lim motor=1.50 V driver=3.20 V alin=1.50 V | PWM=listo EN pedido=LOW | FOC=pendiente | giro=si paridad=0 EF=1 diag=0 salto=0 regDiag=0x019F regErr=4 | ultimo=SPI: paridad o EF
+23:56:21.150 > READY | ang=320.84 deg bruto=14602 vel=0.000 rad/s obj=0.00 rampa=0.00 | bus=8.00 V lim motor=1.50 V driver=3.20 V alin=1.50 V | PWM=listo EN pedido=LOW | FOC=pendiente | giro=si paridad=0 EF=1 diag=0 salto=0 regDiag=0x019F regErr=4 | ultimo=SPI: paridad o EF
+23:56:22.150 > READY | ang=320.82 deg bruto=14601 vel=0.038 rad/s obj=0.00 rampa=0.00 | bus=8.00 V lim motor=1.50 V driver=3.20 V alin=1.50 V | PWM=listo EN pedido=LOW | FOC=pendiente | giro=si paridad=0 EF=1 diag=0 salto=0 regDiag=0x019F regErr=4 | ultimo=SPI: paridad o EF
+23:56:23.150 > READY | ang=320.84 deg bruto=14602 vel=0.019 rad/s obj=0.00 rampa=0.00 | bus=8.00 V lim motor=1.50 V driver=3.20 V alin=1.50 V | PWM=listo EN pedido=LOW | FOC=pendiente | giro=si paridad=0 EF=1 diag=0 salto=0 regDiag=0x019F regErr=4 | ultimo=SPI: paridad o EF
+23:56:24.150 > READY | ang=320.89 deg bruto=14604 vel=0.038 rad/s obj=0.00 rampa=0.00 | bus=8.00 V lim motor=1.50 V driver=3.20 V alin=1.50 V | PWM=listo EN pedido=LOW | FOC=pendiente | giro=si paridad=0 EF=1 diag=0 salto=0 regDiag=0x019F regErr=4 | ultimo=SPI: paridad o EF
+23:56:25.150 > READY | ang=320.82 deg bruto=14601 vel=0.019 rad/s obj=0.00 rampa=0.00 | bus=8.00 V lim motor=1.50 V driver=3.20 V alin=1.50 V | PWM=listo EN pedido=LOW | FOC=pendiente | giro=si paridad=0 EF=1 diag=0 salto=0 regDiag=0x019F regErr=4 | ultimo=SPI: paridad o EF
+23:56:26.041 > CALIBRATION | El rotor puede moverse. Corte fisico accesible.
+23:56:26.047 > MOT:Init
+23:56:26.542 > MOT:Enable driver.
+23:56:27.042 > MOT:Align sensor.
+23:56:29.247 > MOT:sensor dir: CCW
+23:56:29.249 > MOT:PP check: OK!
+23:56:29.251 > Skip dir calib.
+23:56:29.968 > MOT:Zero elec. angle: 5.59
+23:56:30.169 > ERR-MOT:No current sense.
+23:56:30.172 > MOT:Ready.
+23:56:30.173 > CALIBRATION | motor.init=1 initFOC=OK pares=OK
+23:56:30.177 > READY | FOC OK, pares=11, sentido=CCW, cero=5.5852 rad, EN bajo. START autoriza.
+23:56:30.184 > READY | ang=334.86 deg bruto=15240 vel=0.312 rad/s obj=0.00 rampa=0.00 | bus=8.00 V lim motor=1.50 V driver=3.20 V alin=1.50 V | PWM=listo EN pedido=LOW | FOC=OK | giro=si paridad=0 EF=1 diag=0 salto=0 regDiag=0x019F regErr=4 | ultimo=SPI: paridad o EF
+23:56:31.170 > READY | ang=334.86 deg bruto=15240 vel=0.038 rad/s obj=0.00 rampa=0.00 | bus=8.00 V lim motor=1.50 V driver=3.20 V alin=1.50 V | PWM=listo EN pedido=LOW | FOC=OK | giro=si paridad=0 EF=1 diag=0 salto=0 regDiag=0x019F regErr=4 | ultimo=SPI: paridad o EF
+23:56:32.170 > READY | ang=335.10 deg bruto=15251 vel=0.000 rad/s obj=0.00 rampa=0.00 | bus=8.00 V lim motor=1.50 V driver=3.20 V alin=1.50 V | PWM=listo EN pedido=LOW | FOC=OK | giro=si paridad=0 EF=1 diag=0 salto=0 regDiag=0x019F regErr=4 | ultimo=SPI: paridad o EF
+23:56:33.170 > READY | ang=336.34 deg bruto=15307 vel=0.000 rad/s obj=0.00 rampa=0.00 | bus=8.00 V lim motor=1.50 V driver=3.20 V alin=1.50 V | PWM=listo EN pedido=LOW | FOC=OK | giro=si paridad=0 EF=1 diag=0 salto=0 regDiag=0x019F regErr=4 | ultimo=SPI: paridad o EF
+23:56:34.170 > READY | ang=336.31 deg bruto=15306 vel=-0.019 rad/s obj=0.00 rampa=0.00 | bus=8.00 V lim motor=1.50 V driver=3.20 V alin=1.50 V | PWM=listo EN pedido=LOW | FOC=OK | giro=si paridad=0 EF=1 diag=0 salto=0 regDiag=0x019F regErr=4 | ultimo=SPI: paridad o EF
+23:56:35.170 > READY | ang=336.31 deg bruto=15306 vel=-0.019 rad/s obj=0.00 rampa=0.00 | bus=8.00 V lim motor=1.50 V driver=3.20 V alin=1.50 V | PWM=listo EN pedido=LOW | FOC=OK | giro=si paridad=0 EF=1 diag=0 salto=0 regDiag=0x019F regErr=4 | ultimo=SPI: paridad o EF

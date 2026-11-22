@@ -1,0 +1,37 @@
+23:58:17.723 > IO, clock div:2
+23:58:17.723 > loadb���4640
+23:58:17.723 > load:0x40078000,len:15632
+23:58:17.725 > load:0x40080400,len:3164
+23:58:17.730 > entry 0x4008059c
+23:58:17.898 > 
+23:58:17.898 > GM4108_SimpleFOC_Test | SAFE | EN bajo, objetivo cero.
+23:58:17.903 > HELP | STATUS | SPI_BOOT | SENSOR | INIT | CALIBRATE | CONFIRM | START
+23:58:17.909 > V <rad/s> | KEEP | STOP | DISABLE
+23:58:17.912 > Para empezar: salida KORAD apagada, SENSOR y giro manual.
+23:58:17.917 > SPI_BOOT | modo=1 reloj=1000000 Hz CS=27 | par=OK o IMPAR
+23:58:17.922 > SPI_BOOT #01 t=19055us init muestra=1 TX=0xFFFF parTX=OK | RX=0xC000 respTX=-- parRX=OK EF=1
+23:58:17.930 > SPI_BOOT #02 t=19218us init muestra=1 TX=0x7FFD parTX=OK | RX=0xDE3F respTX=0xFFFF parRX=OK EF=1
+23:58:17.939 > SPI_BOOT #03 t=19246us init muestra=1 TX=0x0000 parTX=OK | RX=0x419F respTX=0x7FFD parRX=OK EF=1
+23:58:17.947 > SPI_BOOT #04 t=19288us init muestra=1 TX=0x4001 parTX=OK | RX=0xC000 respTX=0x0000 parRX=OK EF=1
+23:58:17.955 > SPI_BOOT #05 t=19313us init muestra=1 TX=0x0000 parTX=OK | RX=0x4004 respTX=0x4001 parRX=OK EF=1
+23:58:17.964 > SPI_BOOT #06 t=19440us init muestra=2 TX=0xFFFF parTX=OK | RX=0x0000 respTX=0x0000 parRX=OK EF=0
+23:58:17.972 > SPI_BOOT #07 t=19498us init muestra=2 TX=0x7FFD parTX=OK | RX=0x1E3F respTX=0xFFFF parRX=OK EF=0
+23:58:17.980 > SPI_BOOT #08 t=19522us init muestra=2 TX=0x0000 parTX=OK | RX=0x819F respTX=0x7FFD parRX=OK EF=0
+23:58:17.989 > SPI_BOOT #09 t=20389us init muestra=3 TX=0xFFFF parTX=OK | RX=0x0000 respTX=0x0000 parRX=OK EF=0
+23:58:17.997 > SPI_BOOT #10 t=20445us init muestra=3 TX=0x7FFD parTX=OK | RX=0x9E3E respTX=0xFFFF parRX=OK EF=0
+23:58:18.006 > SPI_BOOT #11 t=20470us init muestra=3 TX=0x0000 parTX=OK | RX=0x819F respTX=0x7FFD parRX=OK EF=0
+23:58:18.014 > SPI_BOOT #12 t=20563us init muestra=4 TX=0xFFFF parTX=OK | RX=0x0000 respTX=0x0000 parRX=OK EF=0
+23:58:18.022 > SPI_BOOT #13 t=20621us init muestra=4 TX=0x7FFD parTX=OK | RX=0x1E3F respTX=0xFFFF parRX=OK EF=0
+23:58:18.031 > SPI_BOOT #14 t=20645us init muestra=4 TX=0x0000 parTX=OK | RX=0x819F respTX=0x7FFD parRX=OK EF=0
+23:58:18.040 > SPI_BOOT #15 t=20848us loop muestra=5 TX=0xFFFF parTX=OK | RX=0x0000 respTX=0x0000 parRX=OK EF=0
+23:58:18.047 > SPI_BOOT #16 t=20905us loop muestra=5 TX=0x7FFD parTX=OK | RX=0x1E3F respTX=0xFFFF parRX=OK EF=0
+23:58:18.057 > SPI_BOOT #17 t=20929us loop muestra=5 TX=0x0000 parTX=OK | RX=0x819F respTX=0x7FFD parRX=OK EF=0
+23:58:18.064 > SPI_BOOT #18 t=25036us loop muestra=6 TX=0xFFFF parTX=OK | RX=0x0000 respTX=0x0000 parRX=OK EF=0
+23:58:18.072 > SPI_BOOT #19 t=25108us loop muestra=6 TX=0x7FFD parTX=OK | RX=0x9E3E respTX=0xFFFF parRX=OK EF=0
+23:58:18.081 > SPI_BOOT #20 t=25133us loop muestra=6 TX=0x0000 parTX=OK | RX=0x819F respTX=0x7FFD parRX=OK EF=0
+23:58:18.089 > SPI_BOOT #21 t=30024us loop muestra=7 TX=0xFFFF parTX=OK | RX=0x0000 respTX=0x0000 parRX=OK EF=0
+23:58:18.098 > SPI_BOOT #22 t=30080us loop muestra=7 TX=0x7FFD parTX=OK | RX=0x9E3E respTX=0xFFFF parRX=OK EF=0
+23:58:18.108 > SPI_BOOT #23 t=30105us loop muestra=7 TX=0x0000 parTX=OK | RX=0x819F respTX=0x7FFD parRX=OK EF=0
+23:58:18.114 > SPI_BOOT #24 t=35035us loop muestra=8 TX=0xFFFF parTX=OK | RX=0x0000 respTX=0x0000 parRX=OK EF=0
+23:58:18.123 > SPI_BOOT #25 t=35096us loop muestra=8 TX=0x7FFD parTX=OK | RX=0x1E3F respTX=0xFFFF parRX=OK EF=0
+23:58:18.131 > SPI_BOOT #26 t=35120us loop muestra=8 TX=0x0000 parTX=OK | RX=0x819F respTX=0x7FFD parRX=OK EF=0
