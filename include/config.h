@@ -21,8 +21,8 @@ constexpr long pwmFrequencyHz = 25000;
 constexpr unsigned long serialBaud = 115200;
 
 // Confirmar la variante y los límites de banco antes de habilitar ambos permisos.
-constexpr int polePairs = 11;  // Referencia 24N/22P, pendiente de confirmar.
-constexpr bool polePairsConfirmed = false;
+constexpr int polePairs = 11;  // GM4108H 24N/22P: 22 polos, 11 pares.
+constexpr bool polePairsConfirmed = true;
 constexpr bool benchLimitsConfirmed = false;
 constexpr float supplyVolts = 8.00f;       // Sustituir por la tensión validada en el Mini.
 constexpr float driverLimitVolts = 1.20f;  // Tope de la orden PWM de cada salida.

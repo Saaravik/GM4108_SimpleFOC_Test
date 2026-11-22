@@ -17,7 +17,6 @@ enum class Calibration { Pending, Passed, Failed, Aborted };
 
 State state = State::SAFE;
 Calibration calibration = Calibration::Pending;
-BLDCDriver3PWM driver(cfg::pwmA, cfg::pwmB, cfg::pwmC, cfg::driverEnable);
 BLDCMotor motor(cfg::polePairs);
 
 bool driverReady = false;
@@ -43,6 +42,32 @@ void lowerEnable() {
   enableRequested = false;
 }
 
+bool calibrationInterrupted() {
+  return state == State::CALIBRATION && (calibrationSensorFault || calibrationAborted);
+}
+
+class CalibrationDriver : public BLDCDriver3PWM {
+ public:
+  using BLDCDriver3PWM::BLDCDriver3PWM;
+
+  void enable() override {
+    if (!calibrationInterrupted()) BLDCDriver3PWM::enable();
+  }
+
+  void setPwm(float ua, float ub, float uc) override {
+    // initFOC() puede seguir escribiendo tensiones tras fallar una lectura.
+    if (calibrationInterrupted()) BLDCDriver3PWM::setPwm(0, 0, 0);
+    else BLDCDriver3PWM::setPwm(ua, ub, uc);
+  }
+};
+
+CalibrationDriver driver(cfg::pwmA, cfg::pwmB, cfg::pwmC, cfg::driverEnable);
+
+void cutCalibrationPower() {
+  lowerEnable();
+  if (driverReady) motor.disable();
+}
+
 // Sensor de SimpleFOC para FOC, con bus y validación propios del AS5048A.
 class CheckedAS5048A : public Sensor {
  public:
@@ -55,6 +80,7 @@ class CheckedAS5048A : public Sensor {
 
   float getSensorAngle() override {
     if (state == State::CALIBRATION) pollSerial();
+    if (calibrationInterrupted()) return -1;
 
     SPI.beginTransaction(settings);
     // MISO lleva la respuesta al comando anterior. Guardamos también la
@@ -209,8 +235,12 @@ class CheckedAS5048A : public Sensor {
   float reject(const char* reason) {
     lastFault = reason;
     resetManualTest();
-    if (state == State::CALIBRATION) calibrationSensorFault = true;
-    if (state == State::CALIBRATION || state == State::MOTOR_CONTROL) lowerEnable();
+    if (state == State::CALIBRATION) {
+      calibrationSensorFault = true;
+      cutCalibrationPower();
+    } else if (state == State::MOTOR_CONTROL) {
+      lowerEnable();
+    }
     return -1;  // Sensor::update() descarta ángulos negativos.
   }
 
@@ -340,26 +370,30 @@ void runCalibration() {
   Serial.println("CALIBRATION | El rotor puede moverse. Corte fisico accesible.");
   sensor.update();
   int initialized = 0;
-  if (!calibrationAborted && !calibrationSensorFault) {
+  if (!calibrationInterrupted()) {
     enableRequested = true;
     initialized = motor.init();  // En 2.4.0 esta llamada también activa EN.
     sensor.update();
   }
-  const int aligned = initialized == 1 && !calibrationAborted && !calibrationSensorFault
+  const int aligned = initialized == 1 && !calibrationInterrupted()
                           ? motor.initFOC() : 0;
-  pollSerial();
   deenergize();
+  pollSerial();
+  const bool alignmentAccepted = aligned == 1 && !calibrationInterrupted();
   Serial.printf("CALIBRATION | motor.init=%d initFOC=%s pares=%s\n", initialized,
-                aligned == 1 ? "OK" : "sin exito", motor.pp_check_result ? "OK" : "sin validar");
+                alignmentAccepted ? "OK" : "sin exito",
+                alignmentAccepted && motor.pp_check_result ? "OK" : "sin validar");
 
-  if (calibrationAborted) {
+  if (calibrationSensorFault) {
+    calibration = Calibration::Failed;
+    failSafe(lastFault);
+  } else if (calibrationAborted) {
     calibration = Calibration::Aborted;
     failSafe("Calibracion abortada por consola");
-  } else if (calibrationSensorFault || aligned != 1 || !motor.pp_check_result ||
+  } else if (aligned != 1 || !motor.pp_check_result ||
              !isfinite(motor.zero_electric_angle) || motor.zero_electric_angle == NOT_SET) {
     calibration = Calibration::Failed;
-    if (calibrationSensorFault) failSafe("Error de encoder durante calibracion");
-    else if (initialized != 1) failSafe("Fallo motor.init()");
+    if (initialized != 1) failSafe("Fallo motor.init()");
     else if (aligned != 1) failSafe("Fallo motor.initFOC(): revisar movimiento y cableado");
     else failSafe("Alineacion rechazada: pares de polos o cero electrico");
   } else {
@@ -478,8 +512,8 @@ void handleCommand(char* command) {
   const bool disable = strcmp(command, "DISABLE") == 0;
   if (state == State::CALIBRATION) {
     if (stop || disable) {
-      lowerEnable();
       calibrationAborted = true;
+      cutCalibrationPower();
     }
     return;
   }
