@@ -43,32 +43,40 @@ void lowerEnable() {
   enableRequested = false;
 }
 
-// SimpleFOC 2.4.0 descarta la paridad y EF en su lectura. Conservamos su
-// interfaz Sensor para FOC y validamos la misma muestra que usa el control.
-class CheckedAS5048A : public MagneticSensorSPI {
+// Sensor de SimpleFOC para FOC, con bus y validación propios del AS5048A.
+class CheckedAS5048A : public Sensor {
  public:
-  CheckedAS5048A()
-      : MagneticSensorSPI(cfg::encoderCs, cfg::encoderBits,
-                          cfg::encoderAngleRegister, cfg::encoderClockHz),
-        settings(cfg::encoderClockHz, MSBFIRST, SPI_MODE1) {}
+  void init() override {
+    // SimpleFOC 2.4.0 llama cuatro veces a getSensorAngle() para sembrar su estado.
+    initializing = true;
+    Sensor::init();
+    initializing = false;
+  }
 
   float getSensorAngle() override {
     if (state == State::CALIBRATION) pollSerial();
 
     SPI.beginTransaction(settings);
+    // MISO lleva la respuesta al comando anterior. Guardamos también la
+    // primera respuesta de cada muestra en la traza, aunque no sea un ángulo.
     transfer(readCommand(cfg::encoderAngleRegister));
     const uint16_t angle = transfer(readCommand(cfg::encoderDiagnosticsRegister));
-    const uint16_t diagnostics = transfer(0);  // NOP devuelve el diagnóstico pendiente.
+    const uint16_t diagnostics = transfer(nop);
 
     const uint16_t frames = angle | diagnostics;
     const bool ef = frames & 0x4000;
     const bool parity = oddParity(angle) || oddParity(diagnostics);
     if (ef) {
+      // Leer 0x0001 devuelve y borra el error del chip. Conservamos la
+      // evidencia en software y rechazamos la muestra aunque EF se borre.
       transfer(readCommand(cfg::encoderClearErrorRegister));
-      const uint16_t error = transfer(0);
+      const uint16_t error = transfer(nop);
       errorRegister = oddParity(error) ? -1 : (error & 0x0007);
     }
     SPI.endTransaction();
+    if (startupSamples < startupSampleLimit && ++startupSamples == startupSampleLimit) {
+      startupTraceReady = true;
+    }
 
     diagnosticRegister = diagnostics & 0x3FFF;
     if (parity || ef) {
@@ -126,6 +134,29 @@ class CheckedAS5048A : public MagneticSensorSPI {
   float getVelocity() override { return speedValid ? estimatedSpeed : 0; }
   bool healthy() const { return goodSamples >= cfg::minimumGoodSamples && speedValid; }
 
+  void printStartupTraceIfReady() {
+    if (!startupTraceReady) return;
+    startupTraceReady = false;
+    printStartupTrace();
+  }
+
+  void printStartupTrace() const {
+    Serial.printf("SPI_BOOT | modo=1 reloj=%lu Hz CS=%d | par=OK o IMPAR\n",
+                  static_cast<unsigned long>(cfg::encoderClockHz), cfg::encoderCs);
+    for (unsigned i = 0; i < startupFrameCount; ++i) {
+      const StartupFrame& frame = startupFrames[i];
+      char previous[7] = "--";
+      if (i > 0) snprintf(previous, sizeof(previous), "0x%04X",
+                          static_cast<unsigned>(startupFrames[i - 1].tx));
+      Serial.printf("SPI_BOOT #%02u t=%luus %s muestra=%u TX=0x%04X parTX=%s | "
+                    "RX=0x%04X respTX=%s parRX=%s EF=%u\n",
+                    i + 1, static_cast<unsigned long>(frame.at), frame.fromInit ? "init" : "loop",
+                    frame.sample, static_cast<unsigned>(frame.tx), oddParity(frame.tx) ? "IMPAR" : "OK",
+                    static_cast<unsigned>(frame.rx), previous, oddParity(frame.rx) ? "IMPAR" : "OK",
+                    static_cast<unsigned>((frame.rx >> 14) & 1));
+    }
+  }
+
   void resetManualTest() {
     goodSamples = 0;
     speedValid = false;
@@ -144,6 +175,16 @@ class CheckedAS5048A : public MagneticSensorSPI {
   uint32_t jumpErrors = 0;
 
  private:
+  static constexpr uint16_t nop = 0x0000;
+  static constexpr unsigned startupSampleLimit = 8;
+  struct StartupFrame {
+    uint32_t at;
+    uint16_t tx;
+    uint16_t rx;
+    unsigned sample;
+    bool fromInit;
+  };
+
   static bool oddParity(uint16_t frame) { return __builtin_parity(frame); }
 
   static uint16_t readCommand(uint16_t address) {
@@ -151,12 +192,17 @@ class CheckedAS5048A : public MagneticSensorSPI {
     return command | (oddParity(command) ? 0x8000 : 0);
   }
 
-  static uint16_t transfer(uint16_t frame) {
+  uint16_t transfer(uint16_t frame) {
+    const bool trace = startupSamples < startupSampleLimit;
+    const uint32_t at = trace ? micros() : 0;
     digitalWrite(cfg::encoderCs, LOW);
     delayMicroseconds(1);
     const uint16_t reply = SPI.transfer16(frame);
     digitalWrite(cfg::encoderCs, HIGH);
     delayMicroseconds(1);
+    if (trace) {
+      startupFrames[startupFrameCount++] = {at, frame, reply, startupSamples + 1, initializing};
+    }
     return reply;
   }
 
@@ -168,7 +214,12 @@ class CheckedAS5048A : public MagneticSensorSPI {
     return -1;  // Sensor::update() descarta ángulos negativos.
   }
 
-  SPISettings settings;
+  SPISettings settings{cfg::encoderClockHz, MSBFIRST, SPI_MODE1};
+  StartupFrame startupFrames[startupSampleLimit * 5];  // Tres tramas más dos si aparece EF.
+  unsigned startupFrameCount = 0;
+  unsigned startupSamples = 0;
+  bool initializing = false;
+  bool startupTraceReady = false;
   uint32_t sampledAt = 0;
   uint32_t velocityAt = 0;
   float estimatedSpeed = 0;
@@ -400,7 +451,7 @@ void report(bool periodic) {
 }
 
 void printHelp() {
-  Serial.println("HELP | STATUS | SENSOR | INIT | CALIBRATE | CONFIRM | START\n"
+  Serial.println("HELP | STATUS | SPI_BOOT | SENSOR | INIT | CALIBRATE | CONFIRM | START\n"
                  "V <rad/s> | KEEP | STOP | DISABLE\n"
                  "Para empezar: salida KORAD apagada, SENSOR y giro manual.");
 }
@@ -445,6 +496,9 @@ void handleCommand(char* command) {
     printHelp();
   } else if (strcmp(command, "STATUS") == 0) {
     report(false);
+  } else if (strcmp(command, "SPI_BOOT") == 0 && state != State::MOTOR_CONTROL) {
+    if (sensorBusReady) sensor.printStartupTrace();
+    else Serial.println("SPI sin inicializar.");
   } else if (strcmp(command, "SENSOR") == 0 && state != State::MOTOR_CONTROL) {
     if (!sensorBusReady) {
       Serial.println("SPI sin inicializar. Revise el bus y reinicie.");
@@ -513,12 +567,15 @@ void setup() {
   gpio_set_level(static_cast<gpio_num_t>(cfg::driverEnable), 0);
   pinMode(cfg::driverEnable, OUTPUT);
   lowerEnable();
+  // Precarga el latch del GPIO antes de habilitar la salida, con CS inactivo.
+  gpio_set_level(static_cast<gpio_num_t>(cfg::encoderCs), 1);
+  pinMode(cfg::encoderCs, OUTPUT);
   Serial.setTxBufferSize(1024);
   Serial.begin(cfg::serialBaud);
   SimpleFOCDebug::enable(&Serial);
   Serial.println("\nGM4108_SimpleFOC_Test | SAFE | EN bajo, objetivo cero.");
   sensorBusReady = SPI.begin(cfg::encoderSck, cfg::encoderMiso, cfg::encoderMosi, -1);
-  if (sensorBusReady) sensor.init(&SPI);
+  if (sensorBusReady) sensor.init();
   else failSafe("Fallo SPI.begin()");
   printHelp();
 }
@@ -530,6 +587,7 @@ void loop() {
   if (sensorBusReady && state != State::MOTOR_CONTROL && now - lastSensorAt >= cfg::sensorPeriodMs) {
     lastSensorAt = now;
     sensor.update();
+    sensor.printStartupTraceIfReady();
     if (state == State::READY && !sensor.healthy()) {
       calibration = Calibration::Pending;
       failSafe(lastFault);
