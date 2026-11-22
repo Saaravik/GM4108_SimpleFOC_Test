@@ -481,12 +481,13 @@ void updateSpeedTestMeasurements(uint32_t elapsedUs) {
   const char* phase = "cero_final";
   if (speedTest.phase == SpeedTestPhase::InitialHold) phase = "cero_inicial";
   else if (speedTest.phase == SpeedTestPhase::Run) phase = "velocidad";
-  char message[176];
+  char message[224];
   const int length = snprintf(message, sizeof(message),
                               "TEST_SPEED | t=%lu ms fase=%s obj=%.2f rampa=%.2f vel=%.3f rad/s "
-                              "ang=%.2f deg PWM=%s EN=%s\n",
+                              "vel_foc=%.3f rad/s Uq_cmd=%.3f V ang=%.2f deg PWM=%s EN=%s\n",
                               static_cast<unsigned long>(elapsedUs / 1000), phase, requestedSpeed, rampedSpeed,
-                              speed, sensor.rawCount * (360.0f / (1 << cfg::encoderBits)),
+                              speed, motor.shaft_velocity, motor.voltage.q,
+                              sensor.rawCount * (360.0f / (1 << cfg::encoderBits)),
                               driverReady ? "listo" : "pendiente", enableRequested ? "HIGH" : "LOW");
   if (length > 0 && length < static_cast<int>(sizeof(message)) && Serial.availableForWrite() >= length) {
     Serial.write(reinterpret_cast<const uint8_t*>(message), length);
