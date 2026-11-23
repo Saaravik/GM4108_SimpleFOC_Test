@@ -1,17 +1,11 @@
 #pragma once
 
-#include <Arduino.h>
-
 namespace cfg {
 constexpr int encoderSck = 18;
 constexpr int encoderMiso = 19;
 constexpr int encoderMosi = 23;
 constexpr int encoderCs = 27;
 constexpr long encoderClockHz = 1000000;
-constexpr int encoderBits = 14;
-constexpr uint16_t encoderAngleRegister = 0x3FFF;
-constexpr uint16_t encoderDiagnosticsRegister = 0x3FFD;
-constexpr uint16_t encoderClearErrorRegister = 0x0001;
 
 constexpr int pwmA = 25;
 constexpr int pwmB = 26;
@@ -20,29 +14,30 @@ constexpr int driverEnable = 33;
 constexpr long pwmFrequencyHz = 25000;
 constexpr unsigned long serialBaud = 115200;
 
-// Confirmar la variante y los límites de banco antes de habilitar ambos permisos.
-constexpr int polePairs = 11;  // GM4108H 24N/22P: 22 polos, 11 pares.
-constexpr bool polePairsConfirmed = true;
-constexpr bool benchLimitsConfirmed = true;
-constexpr float supplyVolts = 8.00f;       // Sustituir por la tensión validada en el Mini.
-constexpr float driverLimitVolts = 3.20f;  // Tope de la orden PWM de cada salida.
-constexpr float motorLimitVolts = 1.50f;   // Tope de Uq durante control.
-constexpr float alignVolts = 1.50f;        // Uq durante alineación.
-constexpr float speedLimit = 1.0f;         // rad/s
-constexpr float acceleration = 0.50f;      // rad/s²
-constexpr float velocityP = 2.00f;
-constexpr float velocityI = 0.20f;
-constexpr float velocityFilterSeconds = 0.05f;
+constexpr int polePairs = 11;
+constexpr float MOTOR_LINE_RESISTANCE = 9.5f;
+constexpr float MOTOR_PHASE_RESISTANCE = MOTOR_LINE_RESISTANCE / 2.0f;  // Estrella.
 
-constexpr uint32_t sensorPeriodMs = 5;
-constexpr unsigned minimumGoodSamples = 20;
-constexpr float manualTravelRad = 0.0873f;  // Aproximadamente 5 grados.
-constexpr float sensorJumpMarginRad = 0.015f;
-constexpr float sensorPlausibilityRadPerSec = 20.0f;
-constexpr uint32_t velocityWindowUs = 20000;
-constexpr uint32_t maxControlGapUs = 100000;
-constexpr uint32_t commandTimeoutMs = 5000;
-constexpr uint32_t confirmationTimeoutMs = 30000;
-constexpr uint32_t monitorIntervalMs = 1000;
-constexpr uint32_t diagnosticIntervalMs = 500;
+constexpr float supplyVolts = 8.0f;
+constexpr float driverLimitVolts = 3.2f;
+constexpr float motorLimitVolts = 1.5f;
+constexpr float alignVolts = 1.5f;
+constexpr float speedLimit = 1.0f;  // rad/s
+
+constexpr float velocityP = 0.20f;
+constexpr float velocityI = 0.10f;
+constexpr float velocityD = 0.0f;
+constexpr float velocityFilterSeconds = 0.05f;
+constexpr float velocityOutputRamp = 2.0f;  // V/s
+
+constexpr float maxVelocityP = 1.0f;
+constexpr float maxVelocityI = 0.20f;
+constexpr float maxVelocityD = 0.01f;
+constexpr float minFilterSeconds = 0.01f;
+constexpr float maxFilterSeconds = 0.10f;
+constexpr unsigned long overspeedHoldMs = 100;
+constexpr unsigned long maxLoopGapUs = 100000;
+
+// Activar únicamente para un arranque supervisado con la etapa de potencia preparada.
+constexpr bool alignOnBoot = false;
 }

@@ -1,6 +1,23 @@
-# GM4108_SimpleFOC_Test
+# GM4108 con SimpleFOCWebController
 
-Banco independiente para un iPower GM4108 con AS5048A, un SimpleFOC Mini v2.3 y un ESP32-DevKitC con ESP32-WROOM-32E. La primera sesión cubre **A, B y C con la salida de la KORAD apagada**. El firmware entregado permite comprobar el encoder y preparar el PWM del ESP32 manteniendo EN bajo. La calibración y el movimiento quedan bloqueados mediante dos permisos en `include/config.h`.
+Firmware de banco para un iPower GM4108, un AS5048A, un SimpleFOC Mini v2.3 y un ESP32-DevKitC con ESP32-WROOM-32E. Usa Arduino SimpleFOC 2.4.0 en lazo cerrado de velocidad con par por tensión. El ajuste de PID, filtro y consigna y la visualización se hacen por USB desde SimpleFOCWebController.
+
+## Motor y caracterización
+
+| Parámetro | Valor | Procedencia |
+|---|---|---|
+| Tipo y geometría | BLDC gimbal, 24 dientes, 22 polos | Datos aportados del GM4108 |
+| Pares de polos | 11 | Confirmado por la calibración anterior |
+| Resistencia entre terminales | 9,5 Ω | A–B, B–C y A–C dieron 9,6 Ω. Se descontaron 0,1 Ω de las puntas |
+| Topología | Estrella (Wye) | Información de bobinado aportada. La topología se toma como dato de partida |
+| Resistencia por bobinado | 4,75 Ω | En estrella se miden dos bobinados en serie. 9,5 Ω / 2 = 4,75 Ω |
+| Kv de referencia | 27–30 RPM/V, nominal ≈28 RPM/V | Orientativo de la variante GM4108H-120T, pendiente de identificar en este motor |
+| Kt de referencia | 0,32–0,35 Nm/A | Orientativo de la 120T y dependiente de las convenciones de corriente y tensión |
+| Inductancia de referencia | 1,5–3,5 mH | Rango orientativo sin medición de Ld ni Lq |
+
+El multímetro indicó `OL` entre cada terminal y la carcasa. La conexión estrella procede de la información aportada sobre el bobinado y queda pendiente de verificación por inspección interna. El valor típico aportado de 11,1 Ω entre terminales para ciertas variantes cede ante la medición corregida de este motor. [Guía de medición de resistencia de fase](https://docs.simplefoc.com/phase_resistance)
+
+En el código de **2.4.0**, `BLDCMotor(11, 4.75f)` guarda el segundo argumento en `phase_resistance` y sigue inicializando `torque_controller` en `voltage`. El firmware también selecciona ese modo explícitamente. En esa rama de `loopFOC()`, la orden del PID de velocidad se acota por `motor.voltage_limit` en voltios. La resistencia no participa en esa conversión, en el límite de tensión ni en el cálculo de corriente. La rama independiente `estimated_current` sí usa la resistencia para calcular la tensión a partir de la consigna de corriente. Kv, Kt e inductancia quedan como referencias y se omiten de la configuración de control. [Constructor 2.4.0](https://github.com/simplefoc/Arduino-FOC/blob/v2.4.0/src/BLDCMotor.cpp) · [Lazos y límites 2.4.0](https://github.com/simplefoc/Arduino-FOC/blob/v2.4.0/src/common/base_classes/FOCMotor.cpp) · [Modo tensión](https://docs.simplefoc.com/voltage_torque_mode) · [Modo de corriente estimada](https://docs.simplefoc.com/estimated_current_mode)
 
 ## Cableado
 
@@ -10,109 +27,70 @@ Banco independiente para un iPower GM4108 con AS5048A, un SimpleFOC Mini v2.3 y 
 | AS5048A SCK / MISO / MOSI / CS | GPIO18 / GPIO19 / GPIO23 / GPIO27 |
 | Mini IN1 / IN2 / IN3 / EN / GND | GPIO25 / GPIO26 / GPIO32 / GPIO33 / GND |
 | Mini M1 / M2 / M3 | Motor fase A / B / C |
-| KORAD positivo / negativo | Mini + / − |
+| KORAD positivo / negativo | Alimentación de potencia del Mini + / − |
 
-Alimenta el ESP32 por USB. Conecta la masa del ESP32, el encoder, el Mini y el negativo de la KORAD. Los 8 V van exclusivamente a los bornes de potencia del Mini. Deja CS1, CS2, CS3 y la salida de 3,3 V del Mini sin conectar. El AS5048A usa SPI modo 1 a 1 MHz, con 14 bits de resolución y el registro angular `0x3FFF`.
+Alimenta el ESP32 por USB y comparte masa entre el ESP32, el encoder, el Mini y el negativo de la fuente. El AS5048A usa el preset oficial `AS5048_SPI`, modo 1 a 1 MHz, 14 bits y registro angular `0x3FFF`. EN tiene un pull-down externo de 10 kΩ. Verifica su nivel en el Mini durante arranque y reset con la salida de potencia desconectada. Deja CS1, CS2, CS3 y la salida de 3,3 V del Mini sin conectar. [Cableado del Mini v2.3](https://docs.simplefoc.com/mini_v23_connect_hardware) · [Preset SPI 2.4.0](https://github.com/simplefoc/Arduino-FOC/blob/v2.4.0/src/sensors/MagneticSensorSPI.cpp)
 
-Instala y verifica un **pull-down físico en EN** adecuado para el módulo y el montaje. Durante reset y antes de que el ESP32 configure el GPIO, el software carece de control sobre EN. Comprueba el nivel en el pin del Mini durante arranque y reset, con la etapa de potencia desactivada. Ten accesible un interruptor físico que corte la alimentación de potencia. Úsalo ante movimientos imprevistos o pérdida de control.
+## PlatformIO
 
-## Parámetros que deben confirmarse antes de las pruebas con potencia
-
-- **Pares de polos.** El iPower GM4108H está documentado como 24N/22P. Los 22 polos del rotor corresponden a `polePairs = 11` y `polePairsConfirmed = true`. El chequeo durante FOC es una comprobación adicional. [Ficha de iFlight](https://shop.iflight.com/cn/iPower-GM4108-Motor-Pro951)
-- **Tensión en los bornes del Mini.** La referencia inicial de la KORAD KA3005D es **8,00 V**, con la salida inicialmente apagada. Hay una discrepancia de aproximadamente **3,2 %** con el multímetro y queda por establecer la exactitud de ambos instrumentos. La guía del Mini v2.3 indica un rango de **8–35 V**. Verifica la tensión efectiva con una referencia fiable, incluida la caída bajo carga prevista y el margen sobre el mínimo. Mantén suspendidas las pruebas con el motor si la tensión real o su margen siguen sin verificarse. [Guía oficial del Mini v2.3](https://docs.simplefoc.com/mini_v23_connect_hardware)
-- **Límites de la prueba.** La referencia de límite de la fuente es **0,500 A de entrada**. La fuente limita corriente en su salida y la corriente de fase puede ser distinta. La lectura de **0 Ω** en los tres pares es inconcluyente. Mantén la resistencia sin especificar en SimpleFOC y valida los límites eléctricos del motor con datos fiables de esta variante o mediciones adecuadas. Revisa los límites de la tabla y activa `benchLimitsConfirmed` solo después de validar que los ajustes son adecuados para este banco. El firmware carece de mediciones de corriente de fase, temperatura, tensión de bus y señales de fallo del driver.
-- **Montaje.** Sujeta el motor y comprueba que el rotor puede girar libremente, sin rueda ni carga. Verifica polaridad, masa común, fases, modo 3-PWM, EN y corte físico antes de activar potencia. Recompila y vuelve a cargar tras confirmar o ajustar parámetros en `config.h`.
-
-| Parámetro SimpleFOC | Valor inicial | Interpretación |
-|---|---:|---|
-| `driver.voltage_power_supply` | 8,00 V | Estimación del bus usada como divisor para calcular el ciclo útil. Ajustar a la tensión validada. |
-| `driver.voltage_limit` | 3,20 V | Máxima orden por salida PWM en el modelo del driver. Con bus configurado a 8,00 V equivale a 40 % de ciclo útil. |
-| `motor.voltage_limit` | 1,50 V | Magnitud máxima de la orden de eje q durante el control de velocidad. |
-| `motor.voltage_sensor_align` | 1,50 V | Magnitud de la orden usada al alinear. Una alineación fallida requiere revisar el banco antes de otro intento. |
-
-Los límites de tensión son valores provisionales de puesta en marcha. El PWM aplica pulsos del bus y las órdenes de tensión se traducen a ciclos útiles. Se usa PWM sinusoidal centrado, control FOC de par por tensión y lazo de velocidad, con un objetivo máximo inicial de **±1,0 rad/s** y una rampa de **0,50 rad/s²**. La velocidad del objetivo y la velocidad física se observan por separado.
-
-## Compilar y abrir el monitor
-
-Abre esta carpeta como proyecto propio en VS Code con PlatformIO. El entorno `esp32dev` usa Arduino, Espressif32 **8.0.0** y SimpleFOC oficial **2.4.0**. Compilación comprobada con Arduino-ESP32 **3.3.12**.
+`platformio.ini` usa `espressif32@8.0.0`, placa `esp32dev`, framework Arduino, `askuric/Simple FOC@2.4.0` y puerto serie a 115200 baudios.
 
 ```sh
-pio run
-pio run -t upload
-pio device monitor -b 115200
+pio run -e esp32dev
+pio run -e esp32dev -t upload
 ```
 
-Carga por USB con la salida de la KORAD apagada. Selecciona el puerto de la DevKitC si hay varios dispositivos. En el monitor usa terminación LF, CR o CRLF. Escribe los números con punto decimal. La calibración queda en RAM y se pierde al reiniciar.
+La segunda orden carga por USB. Para la primera carga mantén desconectada la salida de potencia de la KORAD y conserva `alignOnBoot = false` en `include/config.h`.
 
-## Estados y comandos
+## Primera comprobación por USB
 
-El arranque entra en **SAFE** con EN bajo. `SENSOR` pasa a **SENSOR_TEST**. Tras detectar al menos 20 muestras válidas consecutivas y un desplazamiento manual de aproximadamente 5°, `INIT` configura el PWM y pasa a **READY** con EN bajo. Su éxito comprueba la inicialización de PWM del ESP32. Comprueba físicamente la etapa de potencia por separado.
+1. Cierra el monitor serie de PlatformIO y abre [SimpleFOCWebController](https://webcontroller.simplefoc.com/) en un navegador con Web Serial.
+2. Selecciona **115200** y el puerto USB del ESP32. Debe aparecer el motor **M / GM4108**. En la terminal, `?` lista el motor y `ME` debe devolver `ME0`.
+3. Activa la gráfica de **Angle** o consulta `MMG6` en la terminal. Gira despacio el rotor a mano en ambos sentidos y comprueba que el ángulo cambia. Verifica físicamente que EN permanece bajo y que `ME1` se rechaza.
+4. Comprueba que el navegador puede consultar y ajustar el PID y el filtro, y que el firmware rechaza las escrituras de límites y los cambios de modo. Los valores editados durante esta comprobación se pierden al reiniciar.
 
-`CALIBRATE` solicita una confirmación en READY. Un `CONFIRM` válido entra en **CALIBRATION**, llama a `motor.init()` y después a `motor.initFOC()`. El firmware comprueba el retorno, los datos del AS5048A, el chequeo de pares de polos y el cero eléctrico. Deshabilita el driver al terminar. El éxito vuelve a **READY** con FOC válido y el fallo o aborto vuelve a **SAFE**. Un nuevo intento requiere revisar la causa y repetir los comandos desde `SENSOR`. `START` desde READY con FOC válido entra en **MOTOR_CONTROL** con objetivo cero.
+Con la configuración entregada se inicializan SPI y PWM con EN bajo. Se omiten `motor.init()` e `initFOC()`, y la lectura de ángulo emplea el sentido bruto del encoder.
 
-| Comando | Acción |
-|---|---|
-| `HELP` | Lista los comandos y el primer paso. |
-| `STATUS` | Muestra estado, lecturas, límites, PWM, orden EN, resultado FOC y último error. |
-| `SENSOR` | Inicia el diagnóstico, deshabilita EN y descarta la calibración. Desde MOTOR_CONTROL, primero usa `STOP`. |
-| `INIT` | Prepara el PWM tras la prueba manual del encoder. |
-| `CALIBRATE` | Pide autorización para alinear si los permisos de configuración están confirmados. |
-| `CONFIRM` | Dentro de los siguientes 30 s, confirma que el motor está sujeto, libre, sin rueda ni carga, la fuente está correctamente configurada y la salida de potencia se ha activado intencionadamente. |
-| `START` | Habilita el control manual con objetivo cero y abre la autorización de 5 s. El control activo a cero puede aplicar par. |
-| `V 1` / `V -1` / `V 0` | Cambia el objetivo en rad/s y renueva la autorización. `V 0` mantiene el control activo. |
-| `KEEP` | Renueva la autorización sin cambiar el objetivo. |
-| `TEST_SPEED` | Desde READY con FOC válido y encoder saludable, solicita `CONFIRM` para ejecutar una prueba automática de 7 s. |
-| `STOP` | Anula el objetivo y baja EN de inmediato al procesarse. Desde MOTOR_CONTROL conserva el FOC válido en READY. |
-| `DISABLE` | Baja EN, descarta la calibración y vuelve a SAFE. |
+## Alineación supervisada y primer movimiento
 
-Cada `V` válido o `KEEP` abre otros **5 s** de control manual. Al vencer la autorización, el objetivo baja a cero según la rampa y el driver se deshabilita al llegar a cero. A ±1,0 rad/s la rampa dura como máximo otros 2 s. Las renovaciones durante esa parada se rechazan. Para rearmar, espera READY y envía un nuevo `START`.
+1. Sujeta el motor sin rueda ni carga y comprueba que gira libremente. Ten a mano el corte físico de potencia. Ajusta la KORAD a **8,0 V / 0,5 A** y verifica la tensión efectiva en los bornes del Mini. La guía del Mini v2.3 indica 8 V como mínimo, por lo que hay que comprobar el margen bajo carga. [Alimentación del Mini v2.3](https://docs.simplefoc.com/mini_v23_connect_hardware)
+2. Para una sesión con potencia, cambia `alignOnBoot` a `true`, recompila y carga con la salida de la fuente apagada. Tras preparar el banco, aplica la alimentación de potencia y reinicia deliberadamente el ESP32 para alinear.
+3. **En cada reinicio de esa compilación, `motor.init()` habilita EN e `initFOC()` energiza el motor y puede mover el rotor con consigna cero.** Durante la alineación el firmware permanece dentro de las llamadas bloqueantes de SimpleFOC. Ten disponible el corte físico, también al conectar Web Serial si el puerto provoca un reinicio. [Inicialización de BLDCMotor](https://docs.simplefoc.com/bldcmotor)
+4. Una alineación correcta deja EN bajo y consigna cero. Habilita mediante el interruptor de WebController o `ME1`. Envía después una consigna pequeña, por ejemplo `M0.2`. Con el control habilitado, la consigna cero puede aplicar par para corregir movimiento.
+5. Si falla la inicialización, la alineación o la comprobación de pares de polos, el firmware baja EN y bloquea la habilitación hasta un reinicio deliberado. Ante un fallo, corta la potencia y revisa su causa antes de reiniciar.
 
-Para la prueba automática, envía `TEST_SPEED` y luego `CONFIRM` dentro de 30 s. El motor mantiene objetivo 0 rad/s durante 1 s, recibe una consigna de +0,2 rad/s durante 5 s y vuelve a consigna cero durante 1 s. El objetivo efectivo usa la rampa de 0,50 rad/s² en ambos cambios. Al llegar el plazo de 7 s el lazo corta EN y vuelve a READY. La prueba funciona sin `KEEP`. `STOP` corta inmediatamente y conserva FOC en READY. `DISABLE` corta, invalida la calibración y vuelve a SAFE. Un fallo del encoder o del lazo también corta y vuelve a SAFE.
+## Ajuste y gráficas
 
-La prueba emite telemetría cada 200 ms con consigna, rampa, velocidad estimada en el sentido calibrado, ángulo bruto del encoder, estado del PWM y de EN, y fase. Si se llena el búfer de serie, se omite esa muestra para mantener el lazo FOC. El resumen indica el desplazamiento angular neto acumulado, la velocidad media con signo, el pico absoluto de velocidad y el motivo de finalización.
+| Ajuste | Inicial | Rango de escritura | Comando de ejemplo |
+|---|---:|---:|---|
+| V-P | 0,20 | 0–1,00 | `MVP0.20` |
+| V-I | 0,10 | 0–0,20 | `MVI0.10` |
+| V-D | 0 | 0–0,01 | `MVD0` |
+| V-Filter (Tf) | 0,05 s | 0,01–0,10 s | `MVF0.05` |
+| Consigna de velocidad | 0 rad/s | −1,0 a +1,0 rad/s con EN habilitado | `M0.2` |
 
-Durante la calibración, una lectura rechazada del encoder o la recepción de `STOP` o `DISABLE` baja EN, pone el PWM a cero y bloquea la energización durante el resto del intento. `motor.init()` y `motor.initFOC()` contienen esperas bloqueantes en SimpleFOC 2.4.0. Si la incidencia ocurre durante una espera, se detecta al retomar las lecturas del encoder o la atención de la consola. Ante cualquier anomalía utiliza el **corte físico de potencia** inmediatamente.
+P=0,20 e I=0,10 reproducen el punto prudente de TEST-012, donde antes no hubo movimiento. TEST-013 giró débilmente con P=1,00 e I=0,20. TEST-014 osciló con P=2,00 e I=0,20. D comienza en cero para evitar amplificar el ruido de la velocidad. Tf parte de los 50 ms del banco anterior y la salida del PID tiene una rampa nativa fija de 2 V/s. Son valores de puesta en marcha pendientes de ajuste. Cambia un parámetro cada vez y observa la respuesta al subir, bajar y volver a cero. [Comandos de motor](https://docs.simplefoc.com/commander_motor)
 
-La velocidad mostrada sigue el sentido bruto del encoder. El lazo de control usa el sentido encontrado durante la alineación. El monitor indica `N/D` para velocidad si la lectura falla o todavía no hay una ventana válida. Los contadores cubren paridad, bandera de error SPI (EF), diagnóstico magnético y saltos angulares. `regErr` conserva el último código recuperado del registro de errores (`-1` si aún no hay uno fiable) y `regDiag` muestra la última trama de diagnóstico. `EN pedido` refleja la orden de software y se verifica físicamente en el banco. [Hoja de datos oficial del AS5048A](https://look.ams-osram.com/m/287d7ad97d1ca22e/original/AS5048-DS000298%20Datasheet)
+En **Monitoring**, selecciona **Target**, **Velocity** y **Vq**, deja inicialmente **Downsample** en 100 y pulsa **Start**. La consigna y la velocidad están en rad/s y Vq es la orden de tensión del eje q, en V. Las casillas de corriente carecen de una medición de fase en este banco. Pulsa **Pause** para detener las tramas. El arranque tiene la emisión desactivada y el navegador usa el formato de monitorización nativo delimitado por `M`. [Configuración de WebController](https://docs.simplefoc.com/webcontroller) · [Código oficial de WebController](https://github.com/simplefoc/simplefoc-webcontroller)
 
-## Pruebas progresivas
+Los ajustes viven en RAM. Para conservarlos, registra los valores que devuelven `MVP`, `MVI`, `MVD` y `MVF`. Puedes reintroducirlos en una sesión posterior o actualizarlos en `include/config.h`, compilar y cargar al consolidar un ajuste.
 
-### A — Firmware y comunicación
+## Límites y parada
 
-1. Mantén apagada la salida de potencia de la KORAD y alimenta el ESP32 solo por USB. Compila, carga y abre el monitor a 115200.
-2. Reinicia el ESP32. Confirma el mensaje SAFE, objetivo cero y EN bajo. Verifica con `STATUS` que el PWM sigue pendiente. Comprueba que `START` y `V 1` se rechazan.
+| Parámetro | Valor | Aplicación |
+|---|---:|---|
+| Bus configurado | 8,0 V | Referencia del driver para calcular el PWM |
+| Límite del driver | 3,2 V | Orden máxima por salida PWM, equivalente al 40 % con bus configurado a 8 V |
+| Límite del motor | 1,5 V | Magnitud máxima de la orden Vq en control |
+| Tensión de alineación | 1,5 V | Magnitud de la orden durante la alineación |
+| Límite de consigna | ±1,0 rad/s | Comprobado antes de delegar en Commander |
 
-### B — Encoder
+Los **0,5 A** son el límite de salida de la KORAD hacia la entrada del Mini. La corriente real de las fases y el par quedan indeterminados. La protección reactiva baja EN y bloquea el rearme si la velocidad del encoder, antes del LPF ajustable, supera 1,0 rad/s durante 100 ms, si se detecta un valor no finito en la velocidad o la salida del PID, o si el lazo vuelve a ejecutarse tras una pausa superior a 100 ms. Los límites, la rampa y las cotas del PID reducen el riesgo de oscilación. Una oscilación por debajo del umbral todavía requiere intervención del operador.
 
-1. Envía `SENSOR` con la salida de la KORAD apagada. Gira despacio el rotor a mano en ambos sentidos y comprueba el cambio del ángulo y de la cuenta bruta de 0 a 16383. Comprueba la transición entre 359° y 0° y que la velocidad vuelve a aproximadamente cero al detenerlo.
-2. Compara con el comportamiento ya observado en el proyecto de encoder anterior. Confirma `giro=si` y que los contadores de errores no aumentan durante un giro normal. Un valor fijo de 0° por sí solo carece de valor diagnóstico.
-3. Si aparecen errores, revisa SPI, masa, alimentación del AS5048A e imán, y repite `SENSOR`. Durante todo el paso verifica que EN permanece bajo.
+Commander 2.4.0 permite escribir modos, límites, offsets y parámetros de motor, relanzar FOC y pasar un límite de tensión como segundo número en una consigna. El firmware filtra líneas y valida el comando antes de llamar al despachador oficial. Solo acepta cambios de PID y LPF de velocidad, consignas acotadas, monitorización y habilitación o deshabilitación. Los modos, límites y demás parámetros del control se pueden consultar. Las escrituras bloqueadas pueden seguir apareciendo como controles editables en el navegador. La terminal muestra `Merr` si se rechazan. [Implementación de Commander 2.4.0](https://github.com/simplefoc/Arduino-FOC/blob/v2.4.0/src/communication/Commander.cpp)
 
-### C — Preparación del driver
+Para una parada normal, envía `M0` y después `ME0` o deshabilita el motor con el interruptor de WebController. `ME0` baja EN y borra la consigna y la orden de tensión. Ante vibración, movimiento inesperado, pérdida de comunicación o durante una alineación problemática, corta físicamente la alimentación del Mini. Cerrar el navegador o soltar el USB de datos con el ESP32 todavía alimentado puede dejar activa la última consigna.
 
-1. Con potencia apagada, revisa polaridad, cableado, GPIO, masa común, configuración de la KORAD, pull-down y corte físico.
-2. Desde SENSOR_TEST con la prueba manual superada, envía `INIT`. Verifica READY, PWM listo y EN bajo en el Mini. Comprueba que el rotor sigue inmóvil. En la compilación inicial `CALIBRATE` queda bloqueado y `START` exige un FOC válido.
+La lectura nativa del AS5048A en 2.4.0 enmascara los bits de paridad y error de la respuesta. Una lectura SPI corrupta o congelada puede parecer válida. El estimador nativo de velocidad también conserva el último valor mientras el encoder deja de cambiar, incluso con el rotor detenido. Los cortes de software dependen de las lecturas que entregue la biblioteca y de que el bucle siga ejecutándose. Quedan pendientes las comprobaciones físicas de EN, el enlace Web Serial, el giro en ambos sentidos, la alineación y la respuesta del motor al ajuste y a la parada. [Lector SPI 2.4.0](https://github.com/simplefoc/Arduino-FOC/blob/v2.4.0/src/sensors/MagneticSensorSPI.cpp) · [Estimador de velocidad 2.4.0](https://github.com/simplefoc/Arduino-FOC/blob/v2.4.0/src/common/base_classes/Sensor.cpp)
 
-### D — Calibración supervisada
-
-1. Continúa solo tras completar A–C y confirmar los parámetros de la sección de potencia. Tras actualizar permisos, cargar y repetir B–C, sujeta el motor sin rueda ni carga. Verifica que puede girar libremente, que el corte físico está accesible y que la fuente tiene los ajustes validados.
-2. Activa intencionadamente la salida y comprueba que el rotor permanece quieto en READY. Envía `CALIBRATE` y, tras volver a comprobar las condiciones, `CONFIRM`.
-3. Registra el resultado de `motor.init()`, `initFOC()`, el chequeo de pares de polos y, si hay éxito, el sentido y el cero eléctrico. Verifica READY, FOC OK y EN bajo al acabar. Usa el corte de potencia inmediatamente si hay un movimiento anómalo. Ante un fallo, apaga la salida y revisa la causa antes de otro intento.
-
-### E — Primer movimiento supervisado
-
-1. Con FOC OK y sin carga, envía `START` y luego `V 0.2` antes del timeout. Renueva con `KEEP` cada segundo. Observa ángulo, velocidad estimada, corriente de entrada y tensión de la KORAD.
-2. Envía `STOP`. Tras verificar la parada, rearma con `START` y prueba `V -0.2`. Registra el comportamiento en ambos sentidos. Si no hay movimiento, revisa el resultado y el banco antes de cambiar límites.
-3. Detén el motor y desconecta la potencia antes de comprobar calentamiento. Suspende la prueba ante vibración anómala, calentamiento, fallos de encoder o entrada de la fuente en limitación.
-
-### F — Parada y reinicio
-
-1. A velocidad muy baja, envía `STOP` y comprueba objetivo cero, EN bajo y retorno a READY. Rearma y repite con `DISABLE`. Verifica SAFE, EN bajo y rechazo de `START` y `V 1`.
-2. Tras recuperar FOC OK mediante la secuencia supervisada, arranca a velocidad muy baja y deja de renovar la autorización. Comprueba la rampa a cero, el mensaje de timeout, EN bajo y la necesidad de un nuevo `START`.
-3. Desactiva la salida de potencia y reinicia el ESP32. Comprueba el arranque en SAFE, objetivo cero, calibración pendiente y EN bajo durante y después del reset. Contrasta la lectura del monitor con la medición física de EN.
-
-## Referencias de implementación
-
-- Registro oficial con la dependencia fijada. [SimpleFOC en PlatformIO](https://registry.platformio.org/libraries/askuric/Simple%20FOC) · [Versión oficial 2.4.0](https://github.com/simplefoc/Arduino-FOC/releases/tag/v2.4.0)
-- Constructor e inicialización SPI. Se inicializa primero el bus ESP32 con los pines explícitos. La subclase de `MagneticSensorSPI` comprueba paridad, EF y diagnóstico en la misma lectura que se entrega a FOC, ya que el lector base de esta versión enmascara esos bits. [Guía SPI de SimpleFOC](https://docs.simplefoc.com/magnetic_sensor_spi) · [Código oficial de MagneticSensorSPI](https://github.com/simplefoc/Arduino-FOC/blob/v2.4.0/src/sensors/MagneticSensorSPI.cpp)
-- El código de la versión fija documenta los efectos de `init()`, `enable()` y `disable()`, y la comprobación de pares que acompaña a `initFOC()`. [BLDCMotor](https://github.com/simplefoc/Arduino-FOC/blob/v2.4.0/src/BLDCMotor.cpp) · [BLDCDriver3PWM](https://github.com/simplefoc/Arduino-FOC/blob/v2.4.0/src/drivers/BLDCDriver3PWM.cpp) · [FOCMotor](https://github.com/simplefoc/Arduino-FOC/blob/v2.4.0/src/common/base_classes/FOCMotor.cpp)
+El firmware se basa en el [patrón de control oficial](https://docs.simplefoc.com/code) y en el [ejemplo de ESP32 con sensor magnético](https://github.com/simplefoc/Arduino-FOC/blob/v2.4.0/examples/hardware_specific_examples/ESP32/magnetic_sensor/esp32_position_control/esp32_position_control.ino).
