@@ -30,6 +30,6 @@ constexpr float velocityD = 0.0f;
 constexpr float velocityFilterSeconds = 0.05f;
 constexpr float velocityOutputRamp = 2.0f;  // V/s
 
-// Esta compilación de diagnóstico mantiene desactivada la alineación.
-constexpr bool alignOnBoot = false;
+constexpr unsigned long motionPermitMs = 15000;
+constexpr unsigned long monitorIntervalMs = 20;
 }
