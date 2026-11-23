@@ -69,8 +69,9 @@ void setup() {
     command.add(motor_id, doMotor, "motor");
 
     motor.useMonitoring(Serial);
-    motor.monitor_start_char = motor_id;
-    motor.monitor_end_char = motor_id;
+    // SimpleFOCStudio: monitorización sin delimitadores.
+    motor.monitor_start_char = '\0';
+    motor.monitor_end_char = '\0';
     motor.monitor_downsample = 0;
     motor.monitor_variables = _MON_TARGET | _MON_VOLT_Q | _MON_VEL;
 
