@@ -1,6 +1,6 @@
 # GM4108 con SimpleFOCWebController
 
-Firmware de banco para un iPower GM4108, un AS5048A, un SimpleFOC Mini v2.3 y un ESP32-DevKitC con ESP32-WROOM-32E. Usa Arduino SimpleFOC 2.4.0 en lazo cerrado de velocidad con par por tensión. El ajuste de PID, filtro y consigna y la visualización se hacen por USB desde SimpleFOCWebController.
+Firmware exclusivo para diagnosticar la comunicación USB con SimpleFOCWebController en un ESP32-DevKitC con ESP32-WROOM-32E, un encoder AS5048A y un banco con iPower GM4108 y SimpleFOC Mini v2.3. Usa Commander nativo de Arduino SimpleFOC 2.4.0. La etapa de potencia permanece deshabilitada.
 
 ## Motor y caracterización
 
@@ -40,65 +40,44 @@ pio run -e esp32dev
 pio run -e esp32dev -t upload
 ```
 
-La segunda orden carga por USB. Para la primera carga mantén desconectada la salida de potencia de la KORAD y conserva `alignOnBoot = false` en `include/config.h`.
+La segunda orden carga por USB. Mantén la salida de la KORAD apagada durante la carga y las pruebas.
 
-## Primera comprobación por USB
+## Diagnóstico con la etapa de potencia deshabilitada
 
-1. Cierra el monitor serie de PlatformIO y abre [SimpleFOCWebController](https://webcontroller.simplefoc.com/) en un navegador con Web Serial.
-2. Selecciona **115200** y el puerto USB del ESP32. Debe aparecer el motor **M / motor GM4108**. En la terminal, `?` debe devolver `?M:motor GM4108`, `ME` debe devolver `ME0` y `MVP` debe devolver `MVP0.20000` después de la conexión, cuando el navegador configura cinco decimales.
-3. Activa la gráfica de **Angle** o consulta `MMG6` en la terminal. Gira despacio el rotor a mano en ambos sentidos y comprueba que el ángulo cambia. Verifica físicamente que EN permanece bajo y que `ME1` se rechaza.
-4. Comprueba que el navegador puede consultar y ajustar el PID y el filtro, y que el firmware rechaza las escrituras de límites y los cambios de modo. Los valores editados durante esta comprobación se pierden al reiniciar.
+GPIO33 (EN) se configura como salida de drenador abierto a nivel bajo. El pull-down externo de 10 kΩ mantiene EN bajo durante el reset, antes de que el firmware configure el pin. Las entradas PWM del Mini conservan su cableado, pero el firmware no las inicializa. El objeto de driver que usa SimpleFOC conserva los valores nominales del banco en memoria y carece de acceso a los pines de potencia.
 
-Con la configuración entregada se inicializan SPI y PWM con EN bajo. Se omiten `motor.init()` e `initFOC()`, y la lectura de ángulo emplea el sentido bruto del encoder.
+La compilación exige `alignOnBoot = false`. El arranque inicializa el encoder SPI y prescinde de `motor.init()` y de la alineación FOC. Las solicitudes de realineación de Commander tampoco ejecutan la rutina de alineación. `ME1` puede cambiar el estado lógico que muestra WebController, aunque EN permanece bajo y las salidas PWM siguen inactivas.
 
-### Protocolo serie y detección
+El motor empieza en modo de velocidad con par por tensión. Los valores de arranque se conservan como referencia para las consultas.
 
-WebController añade un solo LF (`0x0A`) a cada envío. PlatformIO usa el mismo terminador con `monitor_eol = LF`. Al conectar, el navegador envía `#5` y `@3` para fijar cinco decimales y activar el modo legible por máquina. La detección de pestañas acepta respuestas como `?M:GM4108`, pero el indicador de la sección **Connection** busca una etiqueta que empiece por la palabra `motor`. La etiqueta `motor GM4108` satisface ambas comprobaciones. [Envío serie](https://github.com/simplefoc/simplefoc-webcontroller/blob/8833df1004b50cdb3a970becc3d0b1b7411556e8/src/simpleFoc/serial.ts#L128-L131) · [Conexión](https://github.com/simplefoc/simplefoc-webcontroller/blob/8833df1004b50cdb3a970becc3d0b1b7411556e8/src/components/SerialManager.tsx#L25) · [Detección de pestañas](https://github.com/simplefoc/simplefoc-webcontroller/blob/8833df1004b50cdb3a970becc3d0b1b7411556e8/src/components/Motors.tsx#L35)
+| Parámetro | Valor inicial |
+|---|---:|
+| Tensión nominal de alimentación | 8,0 V |
+| Límite de tensión del driver | 3,2 V |
+| Límite de tensión del motor | 1,5 V |
+| Tensión de alineación | 1,5 V |
+| Límite de velocidad | 1,0 rad/s |
+| PID de velocidad P / I / D | 0,20 / 0,10 / 0 |
+| Filtro de velocidad Tf | 0,05 s |
+| Rampa de salida del PID | 2,0 V/s |
 
-En SimpleFOC 2.4.0, `command.run()` lee el puerto hasta vaciarlo y llama a `command.run(char*)` al encontrar LF o CR. La sobrecarga con búfer despacha la línea recibida y las consultas usan el terminador para distinguir lectura de escritura. El firmware acepta LF, CR y CRLF, entrega una línea terminada en LF y NUL a la sobrecarga oficial y ejecuta como máximo un comando por ciclo de control. Conserva el descarte de líneas inválidas completas porque el lector nativo reinicia su búfer al llenarlo y sigue procesando los bytes restantes. El filtro de `doMotor()` valida las operaciones antes de delegar en `command.motor()`. [Commander 2.4.0](https://github.com/simplefoc/Arduino-FOC/blob/v2.4.0/src/communication/Commander.cpp)
+## Comprobación por USB
 
-La compilación `pio run -e esp32dev` y una prueba de software con Commander 2.4.0 y puerto simulado confirmaron las respuestas del paso 2, el rechazo de `ME1` con la alineación desactivada y el bloqueo de las escrituras de límites. Con el firmware anterior, la misma secuencia LF también devolvió las respuestas de Commander con la etiqueta antigua. La falta de respuestas por Web Serial sigue pendiente de verificar en el banco.
+El bucle llama directamente a `motor.monitor()` y `command.run()`. Commander recibe el puerto serie y despacha el comando `M` directamente a `command.motor(&motor, cmd)`. WebController termina sus envíos con LF. Al conectar, configura cinco decimales con `#5` y el modo legible por máquina con `@3`. Los cambios enviados al motor operan en memoria y se pierden al reiniciar. [Ejemplo oficial de WebController](https://docs.simplefoc.com/webcontroller#arduino-code) · [Envío serie](https://github.com/simplefoc/simplefoc-webcontroller/blob/8833df1004b50cdb3a970becc3d0b1b7411556e8/src/simpleFoc/serial.ts#L128-L131) · [Inicialización de la conexión](https://github.com/simplefoc/simplefoc-webcontroller/blob/8833df1004b50cdb3a970becc3d0b1b7411556e8/src/components/SerialManager.tsx#L76-L87)
 
-## Alineación supervisada y primer movimiento
+1. Con la KORAD apagada y el monitor serie de PlatformIO cerrado, abre [SimpleFOCWebController](https://webcontroller.simplefoc.com/) en un navegador con Web Serial y selecciona el ESP32 a **115200** baudios.
+2. En la terminal serie del navegador comprueba los envíos iniciales `#5` y `@3`, con respuestas `#5` y `@machine`. La detección debe mostrar el motor **M / motor**.
+3. En una conexión recién iniciada, consulta los valores que aparecen en la tabla.
+4. En **Monitoring**, selecciona **Angle** y **Velocity**, fija **Downsample** en 100 y pulsa **Start**. Gira el rotor a mano y comprueba que ambas trazas cambian. `MMG6` y `MMG5` permiten consultar el ángulo y la velocidad respectivamente. El ángulo usa el sentido bruto del encoder.
+5. Comprueba físicamente el nivel de EN durante el arranque y la sesión. Los valores de tensión o de corriente de la interfaz carecen de una medición de fase en este diagnóstico.
 
-1. Sujeta el motor sin rueda ni carga y comprueba que gira libremente. Ten a mano el corte físico de potencia. Ajusta la KORAD a **8,0 V / 0,5 A** y verifica la tensión efectiva en los bornes del Mini. La guía del Mini v2.3 indica 8 V como mínimo, por lo que hay que comprobar el margen bajo carga. [Alimentación del Mini v2.3](https://docs.simplefoc.com/mini_v23_connect_hardware)
-2. Para una sesión con potencia, cambia `alignOnBoot` a `true`, recompila y carga con la salida de la fuente apagada. Tras preparar el banco, aplica la alimentación de potencia y reinicia deliberadamente el ESP32 para alinear.
-3. **En cada reinicio de esa compilación, `motor.init()` habilita EN e `initFOC()` energiza el motor y puede mover el rotor con consigna cero.** Durante la alineación el firmware permanece dentro de las llamadas bloqueantes de SimpleFOC. Ten disponible el corte físico, también al conectar Web Serial si el puerto provoca un reinicio. [Inicialización de BLDCMotor](https://docs.simplefoc.com/bldcmotor)
-4. Una alineación correcta deja EN bajo y consigna cero. Habilita mediante el interruptor de WebController o `ME1`. Envía después una consigna pequeña, por ejemplo `M0.2`. Con el control habilitado, la consigna cero puede aplicar par para corregir movimiento.
-5. Si falla la inicialización, la alineación o la comprobación de pares de polos, el firmware baja EN y bloquea la habilitación hasta un reinicio deliberado. Ante un fallo, corta la potencia y revisa su causa antes de reiniciar.
+| Comando | Respuesta esperada al arrancar |
+|---|---|
+| `?` | `?M:motor` |
+| `ME` | `ME0` |
+| `MVP` | `MVP0.20000` |
+| `MVI` | `MVI0.10000` |
+| `MVD` | `MVD0.00000` |
+| `MVF` | `MVF0.05000` |
 
-## Ajuste y gráficas
-
-| Ajuste | Inicial | Rango de escritura | Comando de ejemplo |
-|---|---:|---:|---|
-| V-P | 0,20 | 0–1,00 | `MVP0.20` |
-| V-I | 0,10 | 0–0,20 | `MVI0.10` |
-| V-D | 0 | 0–0,01 | `MVD0` |
-| V-Filter (Tf) | 0,05 s | 0,01–0,10 s | `MVF0.05` |
-| Consigna de velocidad | 0 rad/s | −1,0 a +1,0 rad/s con EN habilitado | `M0.2` |
-
-P=0,20 e I=0,10 reproducen el punto prudente de TEST-012, donde antes no hubo movimiento. TEST-013 giró débilmente con P=1,00 e I=0,20. TEST-014 osciló con P=2,00 e I=0,20. D comienza en cero para evitar amplificar el ruido de la velocidad. Tf parte de los 50 ms del banco anterior y la salida del PID tiene una rampa nativa fija de 2 V/s. Son valores de puesta en marcha pendientes de ajuste. Cambia un parámetro cada vez y observa la respuesta al subir, bajar y volver a cero. [Comandos de motor](https://docs.simplefoc.com/commander_motor)
-
-En **Monitoring**, selecciona **Target**, **Velocity** y **Vq**, deja inicialmente **Downsample** en 100 y pulsa **Start**. La consigna y la velocidad están en rad/s y Vq es la orden de tensión del eje q, en V. Las casillas de corriente carecen de una medición de fase en este banco. Pulsa **Pause** para detener las tramas. El arranque tiene la emisión desactivada y el navegador usa el formato de monitorización nativo delimitado por `M`. [Configuración de WebController](https://docs.simplefoc.com/webcontroller) · [Código oficial de WebController](https://github.com/simplefoc/simplefoc-webcontroller)
-
-Los ajustes viven en RAM. Para conservarlos, registra los valores que devuelven `MVP`, `MVI`, `MVD` y `MVF`. Puedes reintroducirlos en una sesión posterior o actualizarlos en `include/config.h`, compilar y cargar al consolidar un ajuste.
-
-## Límites y parada
-
-| Parámetro | Valor | Aplicación |
-|---|---:|---|
-| Bus configurado | 8,0 V | Referencia del driver para calcular el PWM |
-| Límite del driver | 3,2 V | Orden máxima por salida PWM, equivalente al 40 % con bus configurado a 8 V |
-| Límite del motor | 1,5 V | Magnitud máxima de la orden Vq en control |
-| Tensión de alineación | 1,5 V | Magnitud de la orden durante la alineación |
-| Límite de consigna | ±1,0 rad/s | Comprobado antes de delegar en Commander |
-
-Los **0,5 A** son el límite de salida de la KORAD hacia la entrada del Mini. La corriente real de las fases y el par quedan indeterminados. La protección reactiva baja EN y bloquea el rearme si la velocidad del encoder, antes del LPF ajustable, supera 1,0 rad/s durante 100 ms, si se detecta un valor no finito en la velocidad o la salida del PID, o si el lazo vuelve a ejecutarse tras una pausa superior a 100 ms. Los límites, la rampa y las cotas del PID reducen el riesgo de oscilación. Una oscilación por debajo del umbral todavía requiere intervención del operador.
-
-Commander 2.4.0 permite escribir modos, límites, offsets y parámetros de motor, relanzar FOC y pasar un límite de tensión como segundo número en una consigna. El firmware filtra líneas y valida el comando antes de llamar al despachador oficial. Solo acepta cambios de PID y LPF de velocidad, consignas acotadas, monitorización y habilitación o deshabilitación. Los modos, límites y demás parámetros del control se pueden consultar. Las escrituras bloqueadas pueden seguir apareciendo como controles editables en el navegador. La terminal muestra `Merr` si se rechazan. [Implementación de Commander 2.4.0](https://github.com/simplefoc/Arduino-FOC/blob/v2.4.0/src/communication/Commander.cpp)
-
-Para una parada normal, envía `M0` y después `ME0` o deshabilita el motor con el interruptor de WebController. `ME0` baja EN y borra la consigna y la orden de tensión. Ante vibración, movimiento inesperado, pérdida de comunicación o durante una alineación problemática, corta físicamente la alimentación del Mini. Cerrar el navegador o soltar el USB de datos con el ESP32 todavía alimentado puede dejar activa la última consigna.
-
-La lectura nativa del AS5048A en 2.4.0 enmascara los bits de paridad y error de la respuesta. Una lectura SPI corrupta o congelada puede parecer válida. El estimador nativo de velocidad también conserva el último valor mientras el encoder deja de cambiar, incluso con el rotor detenido. Los cortes de software dependen de las lecturas que entregue la biblioteca y de que el bucle siga ejecutándose. Quedan pendientes las comprobaciones físicas de EN, el enlace Web Serial, el giro en ambos sentidos, la alineación y la respuesta del motor al ajuste y a la parada. [Lector SPI 2.4.0](https://github.com/simplefoc/Arduino-FOC/blob/v2.4.0/src/sensors/MagneticSensorSPI.cpp) · [Estimador de velocidad 2.4.0](https://github.com/simplefoc/Arduino-FOC/blob/v2.4.0/src/common/base_classes/Sensor.cpp)
-
-El firmware se basa en el [patrón de control oficial](https://docs.simplefoc.com/code) y en el [ejemplo de ESP32 con sensor magnético](https://github.com/simplefoc/Arduino-FOC/blob/v2.4.0/examples/hardware_specific_examples/ESP32/magnetic_sensor/esp32_position_control/esp32_position_control.ino).
+La detección, las consultas y la monitorización en el navegador quedan pendientes de comprobar con el ESP32 por USB.

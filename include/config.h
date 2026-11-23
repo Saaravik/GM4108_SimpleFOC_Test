@@ -30,14 +30,6 @@ constexpr float velocityD = 0.0f;
 constexpr float velocityFilterSeconds = 0.05f;
 constexpr float velocityOutputRamp = 2.0f;  // V/s
 
-constexpr float maxVelocityP = 1.0f;
-constexpr float maxVelocityI = 0.20f;
-constexpr float maxVelocityD = 0.01f;
-constexpr float minFilterSeconds = 0.01f;
-constexpr float maxFilterSeconds = 0.10f;
-constexpr unsigned long overspeedHoldMs = 100;
-constexpr unsigned long maxLoopGapUs = 100000;
-
-// Activar únicamente para un arranque supervisado con la etapa de potencia preparada.
+// Esta compilación de diagnóstico mantiene desactivada la alineación.
 constexpr bool alignOnBoot = false;
 }
