@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <SPI.h>
 #include <SimpleFOC.h>
+#include <stdlib.h>
 
 #include "config.h"
 
@@ -59,11 +60,6 @@ public:
             Serial.println(F("FOC: calibracion rechazada. Se requiere reinicio."));
             return;
         }
-        if (voltage_limit < cfg::alignVolts) {
-            Serial.println(F("FOC: restaurar MLU1.5 antes de calibrar."));
-            return;
-        }
-
         Serial.println(F("FOC: inicio de calibracion energizada."));
         calibrating_ = true;
         sensor_direction = Direction::UNKNOWN;
@@ -98,7 +94,9 @@ public:
         target = 0.0f;
         permitStart_ = millis();
         permitted_ = true;
-        Serial.println(F("FOC: autorizado por 15 s. ME1 habilita, ME0 deshabilita."));
+        Serial.print(F("FOC: autorizado por "));
+        Serial.print(cfg::motionPermitMs / 1000);
+        Serial.println(F(" s. ME1 habilita, ME0 deshabilita."));
     }
 
     bool checkPermit() {
@@ -109,14 +107,30 @@ public:
         return false;
     }
 
+    bool prepareModeChange(MotionControlType nextMode) {
+        if (nextMode == controller) {
+            return true;
+        }
+        if (enabled || target != 0.0f || calibrating_ || faulted_) {
+            return false;
+        }
+
+        disable();  // Cancela la autorización y borra la salida anterior.
+        PID_velocity.reset();
+        return true;
+    }
+
     void checkCommandState() {
         const bool validFilter = isfinite(LPF_velocity.Tf) && LPF_velocity.Tf >= 0.0f;
-        if (controller != MotionControlType::velocity ||
+        const Direction expectedDirection = calibrated() ? Direction::CCW : Direction::CW;
+        const bool validMode = controller == MotionControlType::velocity || controller == MotionControlType::torque;
+        if (!validMode ||
             torque_controller != TorqueControlType::voltage ||
             foc_modulation != FOCModulationType::SinePWM || modulation_centered != 1 ||
             motion_downsample != 0 || sensor_offset != 0.0f ||
+            sensor_direction != expectedDirection ||
             zero_electric_angle != calibratedZero_ ||
-            !inRange(voltage_limit, cfg::motorLimitVolts) ||
+            voltage_limit != cfg::motorLimitVolts ||
             !inRange(velocity_limit, cfg::speedLimit) ||
             !inRange(PID_velocity.limit, voltage_limit) ||
             !isfinite(PID_velocity.P) || !isfinite(PID_velocity.I) || !isfinite(PID_velocity.D) ||
@@ -124,9 +138,14 @@ public:
             !validFilter || !isfinite(target)) {
             latchFault(F("parametros de control invalidos"));
             // Mantener la lectura del encoder disponible con la potencia deshabilitada.
-            controller = MotionControlType::velocity;
+            if (!validMode) {
+                controller = MotionControlType::velocity;
+            }
+            torque_controller = TorqueControlType::voltage;
+            updateVoltageLimit(cfg::motorLimitVolts);
             motion_downsample = 0;
             sensor_offset = 0.0f;
+            sensor_direction = expectedDirection;
             zero_electric_angle = calibratedZero_;
             if (!validFilter) {
                 LPF_velocity.Tf = cfg::velocityFilterSeconds;
@@ -134,8 +153,8 @@ public:
             return;
         }
 
-        // En velocity, SimpleFOC 2.4.0 no aplica velocity_limit a la consigna.
-        target = enabled ? constrain(target, -velocity_limit, velocity_limit) : 0.0f;
+        const float targetLimit = controller == MotionControlType::velocity ? velocity_limit : voltage_limit;
+        target = enabled ? constrain(target, -targetLimit, targetLimit) : 0.0f;
     }
 
     void checkFeedback(float speed) {
@@ -144,7 +163,9 @@ public:
         }
 
         if (!isfinite(current_sp) || !isfinite(shaft_angle) || !isfinite(shaft_velocity) || !isfinite(speed)) {
-            latchFault(F("realimentacion o salida del PID no finita"));
+            latchFault(F("realimentacion o consigna no finita"));
+        } else if (!inRange(fabsf(voltage.q), cfg::motorLimitVolts)) {
+            latchFault(F("tension Q fuera de limite"));
         } else if (fabsf(speed) > cfg::speedLimit) {
             latchFault(F("sobrevelocidad"));
         }
@@ -172,14 +193,38 @@ private:
 SupervisedMotor motor(cfg::polePairs, cfg::MOTOR_PHASE_RESISTANCE);
 Commander command = Commander(Serial);
 
+bool isLineEnd(char value) {
+    return value == '\n' || value == '\r';
+}
+
+bool allowMotionCommand(const char* cmd) {
+    const char subcommand = cmd[1];
+    if (isLineEnd(subcommand) || subcommand == SCMD_TIME || subcommand == SCMD_DOWNSAMPLE) {
+        return true;
+    }
+
+    char* end = nullptr;
+    const double mode = strtod(cmd + 1, &end);
+    const bool supported = mode == static_cast<double>(MotionControlType::torque) ||
+                           mode == static_cast<double>(MotionControlType::velocity);
+    return end != cmd + 1 && isLineEnd(*end) && supported &&
+           motor.prepareModeChange(static_cast<MotionControlType>(mode));
+}
+
 void doMotor(char* cmd) {
     motor.checkPermit();
-    command.motor(&motor, cmd);
+    if (cmd[0] == CMD_MOTION_TYPE && !allowMotionCommand(cmd)) {
+        // La respuesta nativa de MC devuelve a Studio el modo que sigue activo.
+        char query[] = {CMD_MOTION_TYPE, '\n', '\0'};
+        command.motor(&motor, query);
+    } else {
+        command.motor(&motor, cmd);
+    }
     motor.checkCommandState();
 }
 
 bool confirmed(const char* cmd) {
-    return cmd[0] == '1' && (cmd[1] == '\n' || cmd[1] == '\r');
+    return cmd[0] == '1' && isLineEnd(cmd[1]);
 }
 
 void doCalibration(char* cmd) {
@@ -217,6 +262,7 @@ void setup() {
 
     motor.controller = MotionControlType::velocity;
     motor.torque_controller = TorqueControlType::voltage;
+    motor.feed_forward_voltage = {};
     motor.updateVoltageLimit(cfg::motorLimitVolts);
     motor.updateVelocityLimit(cfg::speedLimit);
     motor.voltage_sensor_align = cfg::alignVolts;

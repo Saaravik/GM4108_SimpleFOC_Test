@@ -18,18 +18,18 @@ constexpr int polePairs = 11;
 constexpr float MOTOR_LINE_RESISTANCE = 9.5f;
 constexpr float MOTOR_PHASE_RESISTANCE = MOTOR_LINE_RESISTANCE / 2.0f;  // Estrella.
 
-constexpr float supplyVolts = 8.0f;
-constexpr float driverLimitVolts = 3.2f;
-constexpr float motorLimitVolts = 1.5f;
+constexpr float supplyVolts = 12.0f;
+constexpr float driverLimitVolts = 3.0f;
+constexpr float motorLimitVolts = 3.0f;
 constexpr float alignVolts = 1.5f;
 constexpr float speedLimit = 1.0f;  // rad/s
 
 constexpr float velocityP = 0.20f;
 constexpr float velocityI = 0.10f;
 constexpr float velocityD = 0.0f;
-constexpr float velocityFilterSeconds = 0.05f;
 constexpr float velocityOutputRamp = 2.0f;  // V/s
+constexpr float velocityFilterSeconds = 0.05f;
 
-constexpr unsigned long motionPermitMs = 15000;
+constexpr unsigned long motionPermitMs = 30000;
 constexpr unsigned long monitorIntervalMs = 20;
 }
