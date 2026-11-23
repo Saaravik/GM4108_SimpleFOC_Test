@@ -39,39 +39,7 @@ const char* faultName(Fault fault) {
 }
 
 constexpr auto enableGpio = static_cast<gpio_num_t>(cfg::driverEnable);
-constexpr uint16_t angleCounts = 1 << 14;
-constexpr double radiansPerCount = _2PI / static_cast<double>(angleCounts);
-
-// Sondeo de salud independiente. MagneticSensorSPI sigue alimentando el lazo FOC.
-bool readCheckedAngle(uint16_t& angle) {
-    constexpr uint16_t readDiagnostics = 0x7FFD;  // DIAAGC, con paridad par
-    constexpr uint16_t readAngle = 0xFFFF;
-    constexpr uint16_t spiError = 1 << 14;
-    constexpr uint16_t diagnosticsMask = 0x0F00;
-    constexpr uint16_t offsetCompensated = 0x0100;
-    SPI.beginTransaction(SPISettings(cfg::encoderClockHz, MSBFIRST, SPI_MODE1));
-    auto transfer = [](uint16_t word) {
-        digitalWrite(cfg::encoderCs, LOW);
-        const uint16_t response = SPI.transfer16(word);
-        digitalWrite(cfg::encoderCs, HIGH);
-        delayMicroseconds(1);
-        return response;
-    };
-    transfer(readDiagnostics);
-    const uint16_t diagnostics = transfer(readAngle);
-    const uint16_t response = transfer(0);
-    SPI.endTransaction();
-
-    angle = response & (angleCounts - 1);
-    return !(diagnostics & spiError) && !(response & spiError) &&
-           !__builtin_parity(diagnostics) && !__builtin_parity(response) &&
-           (diagnostics & diagnosticsMask) == offsetCompensated;
-}
-
-double angularDistance(uint16_t angle, uint16_t previous) {
-    const unsigned delta = (static_cast<unsigned>(angle) + angleCounts - previous) % angleCounts;
-    return min(delta, angleCounts - delta) * radiansPerCount;
-}
+constexpr double radiansPerCount = _2PI / static_cast<double>(1 << 14);
 
 // Commander llama a estos métodos virtuales. BLDCMotor conserva la implementación FOC.
 class SupervisedMotor final : public BLDCMotor {
@@ -86,7 +54,7 @@ public:
 
         checkPermit();
         checkCommandState();
-        uint16_t angle;
+        double angle;
         if (!enabled && permitted_ && calibrated() && fault_ == Fault::none && checkInterlocks(&angle)) {
             target = 0.0f;
             current_sp = 0.0f;
@@ -246,13 +214,14 @@ public:
             return;
         }
 
-        uint16_t angle;
-        if (!readCheckedAngle(angle)) {
+        // loopFOC() ya actualizó el sensor. Usar el ángulo acumulado evita saltos en 2π.
+        const double angle = sensor->getPreciseAngle();
+        if (!isfinite(angle)) {
             latchFault(Fault::encoder);
             return;
         }
         const bool hadSample = haveSpeedSample_;
-        const double distance = angularDistance(angle, lastSpeedAngle_);
+        const double distance = fabs(angle - lastSpeedAngle_);
         haveSpeedSample_ = true;
         lastSpeedSampleUs_ = now;
         lastSpeedAngle_ = angle;
@@ -306,13 +275,13 @@ public:
             return;
         }
 
-        uint16_t angle;
+        double angle;
         if (!checkInterlocks(&angle)) {
             return;
         }
         const unsigned long elapsed = micros() - lastSpeedSampleUs_;
         const double allowedDistance = cfg::recoverySpeedLimit * (elapsed * 1e-6) + radiansPerCount;
-        if (elapsed > cfg::recoveryMaxSampleUs || angularDistance(angle, lastSpeedAngle_) > allowedDistance) {
+        if (elapsed > cfg::recoveryMaxSampleUs || fabs(angle - lastSpeedAngle_) > allowedDistance) {
             quietUs_ = 0;
         }
         if (quietUs_ < cfg::recoveryStillUs) {
@@ -366,7 +335,7 @@ private:
                isfinite(LPF_velocity.Tf) && LPF_velocity.Tf >= 0.0f;
     }
 
-    bool checkInterlocks(uint16_t* checkedAngle = nullptr) {
+    bool checkInterlocks(double* checkedAngle = nullptr) {
         if (!driver || !driver->initialized) {
             latchFault(Fault::driver);
             return false;
@@ -376,8 +345,13 @@ private:
             return false;
         }
 
-        uint16_t angle;
-        if (!readCheckedAngle(angle)) {
+        if (!sensor) {
+            latchFault(Fault::encoder);
+            return false;
+        }
+        sensor->update();
+        const double angle = sensor->getPreciseAngle();
+        if (!isfinite(angle)) {
             latchFault(Fault::encoder);
             return false;
         }
@@ -391,7 +365,7 @@ private:
     unsigned long permitStart_ = 0;
     unsigned long lastSpeedSampleUs_ = 0;
     unsigned long quietUs_ = 0;
-    uint16_t lastSpeedAngle_ = 0;
+    double lastSpeedAngle_ = 0.0;
     unsigned int overspeedCount_ = 0;
     bool permitted_ = false;
     bool calibrating_ = false;
