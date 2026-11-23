@@ -22,7 +22,16 @@ constexpr float supplyVolts = 12.0f;
 constexpr float driverLimitVolts = 3.0f;
 constexpr float motorLimitVolts = 3.0f;
 constexpr float alignVolts = 1.5f;
-constexpr float speedLimit = 1.0f;  // rad/s
+constexpr float velocityLimit = 1.0f;       // rad/s al arrancar
+constexpr float maxVelocityLimit = 20.0f;  // techo de consigna en Velocity
+constexpr float overspeedLimit = 10.0f;     // rad/s al arrancar
+constexpr float minOverspeedLimit = 1.0f;
+constexpr float maxOverspeedLimit = 20.0f;  // techo experimental de protección
+constexpr unsigned long overspeedSampleUs = 10000;
+constexpr unsigned int overspeedSamples = 3;
+constexpr float recoverySpeedLimit = 0.2f;  // rad/s
+constexpr unsigned long recoveryStillUs = 500000;
+constexpr unsigned long recoveryMaxSampleUs = 2 * overspeedSampleUs;
 
 constexpr float velocityP = 0.20f;
 constexpr float velocityI = 0.10f;

@@ -32,12 +32,13 @@ Alimenta el ESP32 por USB y comparte masa con el encoder, el Mini y el negativo 
 | Límite del driver / límite del motor | 3,0 V / 3,0 V |
 | Tensión de alineación | 1,5 V |
 | Primera consigna Q manual | 1,0 V |
-| Límite de consigna Velocity y umbral de sobrevelocidad | 1,0 rad/s |
+| Límite de consigna Velocity | 1,0 rad/s |
+| Umbral independiente de sobrevelocidad | 10,0 rad/s, experimental |
 | PID de velocidad P / I / D | 0,20 / 0,10 / 0 |
 | Rampa del PID / LPF de velocidad Tf | 2,0 V/s / 0,05 s |
 | PWM | 25 kHz |
 
-Los 12 V son la alimentación usada para calcular el ciclo PWM. La inicialización conserva los límites de 3 V y la alineación de 1,5 V. El firmware acota la consigna a ±1 rad/s como máximo en Velocity y a ±3 V en Torque Voltage. En ambos modos `loopFOC()` acota la orden Q a ±3 V con `motor.voltage_limit` y compensación de tensión cero. El driver acota cada orden de fase a 0–3 V. Con modulación sinusoidal centrada en 1,5 V, alguna fase puede recortarse cuando la orden Q supera 1,5 V en magnitud. [Lazo FOC en 2.4.0](https://github.com/simplefoc/Arduino-FOC/blob/v2.4.0/src/common/base_classes/FOCMotor.cpp) · [Inicialización y modulación de BLDCMotor](https://github.com/simplefoc/Arduino-FOC/blob/v2.4.0/src/BLDCMotor.cpp) · [Límite por fase del driver](https://github.com/simplefoc/Arduino-FOC/blob/v2.4.0/src/drivers/BLDCDriver3PWM.cpp)
+Los 12 V son la alimentación usada para calcular el ciclo PWM. El firmware acota la consigna de Velocity a ±`MLV` y la de Torque Voltage a ±`MLU`. En ambos modos `loopFOC()` acota la orden Q a ±`MLU`, con un techo de 3 V y compensación de tensión cero. El driver mantiene su límite de 0–3 V por fase. Con modulación sinusoidal centrada en 1,5 V, alguna fase puede recortarse cuando la orden Q supera 1,5 V en magnitud. [Lazo FOC en 2.4.0](https://github.com/simplefoc/Arduino-FOC/blob/v2.4.0/src/common/base_classes/FOCMotor.cpp) · [Inicialización y modulación de BLDCMotor](https://github.com/simplefoc/Arduino-FOC/blob/v2.4.0/src/BLDCMotor.cpp) · [Límite por fase del driver](https://github.com/simplefoc/Arduino-FOC/blob/v2.4.0/src/drivers/BLDCDriver3PWM.cpp)
 
 ## Compilación y conexión USB
 
@@ -67,9 +68,27 @@ El callback de Commander permite una transición únicamente con EN bajo, consig
 |---|---|
 | `ME` | Habilitación, inicialmente `ME0` |
 | `MT` | Modo de par (`volt`) |
-| `MLU` | Límite fijo de tensión Q (3 V) |
 | `MVP`, `MVI`, `MVD`, `MVF` | P, I, D y LPF de velocidad. Ajustables desde Studio |
 | `MMG0`, `MMG1`, `MMG5`, `MMG6` | Consigna (según modo), tensión Q calculada (V), velocidad (rad/s) y ángulo (rad) |
+
+## Ajustes de banco y comandos
+
+| Comando | Función | Estado requerido |
+|---|---|---|
+| `MC0` | Selecciona Torque Voltage | `ME0` y consigna cero |
+| `MC1` | Selecciona Velocity | `ME0` y consigna cero |
+| `MLV` / `MLV10` | Consulta o fija el límite de la consigna Velocity. Rango de 0 a 20 rad/s, inicial 1 rad/s | `ME0` para escribir |
+| `S` / `S10` / `S15` | Consulta o fija el umbral de sobrevelocidad en ambos modos. Rango de 1 a 20 rad/s, inicial 10 rad/s | `ME0` para escribir |
+| `MLU` / `MLU2` / `MLU3` | Consulta o fija el límite de tensión Q en ambos modos. Rango de 0 a 3 V, inicial 3 V | `ME0` para escribir |
+| `MVP`, `MVI`, `MVD`, `MVR`, `MVF`, `MVL` con valor | Ajustan el PID y el LPF de velocidad. Los valores deben ser finitos, la rampa y Tf deben ser ≥0 y `MVL` admite de 0 a `MLU` | `ME0` para escribir |
+| `C1` | Inicia la calibración supervisada a 1,5 V | `ME0` y `MLU` ≥1,5 V |
+| `A1` | Autoriza movimiento por 30 s | Calibración válida y `ME0` |
+| `ME1` | Habilita con consigna cero | Calibración y autorización vigentes |
+| `ME0` | Baja EN y cancela la autorización | Cualquier estado que esté atendiendo Commander |
+| `R` | Consulta estado, calibración, habilitación y fallo | Cualquier estado que esté atendiendo Commander |
+| `R1` | Solicita recuperar un fallo recuperable | EN bajo, consigna cero, calibración vigente y reposo confirmado |
+
+Usa los campos **Velocity Limit** y **Voltage Limit** de Studio o envía `MLV` y `MLU` desde la terminal integrada. `S` es un ID independiente de Commander. `MS…` sigue siendo el prefijo de ajustes del sensor dentro del ID `M`. Se admiten consultas durante el movimiento. Cada escritura aceptada cancela la autorización anterior y requiere un nuevo `A1` antes de `ME1`. Una escritura rechazada devuelve el valor vigente sin enclavar un fallo. Envía las consignas Velocity sin un límite de tensión adjunto y ajusta la tensión por separado con `MLU`. Los ajustes se conservan en RAM hasta el reinicio. [Comandos nativos de SimpleFOC](https://docs.simplefoc.com/commander_motor)
 
 La monitorización arranca detenida. En el gráfico, selecciona **Target**, **Voltage Q**, **Velocity** y **Angle**, fija **Downsample** en **1** y pulsa **Start**. Para diagnóstico basta con **Velocity** y **Angle**. Las filas las emite `motor.monitor()`, separadas por tabuladores y con ambos delimitadores en `'\0'`. El firmware admite esas cuatro columnas, hasta seis decimales y una oportunidad de emisión cada 20 ms si hay espacio en el TX. **Downsample** divide esa cadencia. Por ejemplo, con el 100 predeterminado de Studio sale como máximo una muestra cada dos segundos. Deja las casillas de corriente y tensión D desmarcadas para que las columnas esperadas por Studio coincidan con las emitidas. Las consultas nativas de corriente siguen disponibles y sus campos carecen de datos de medición. [Formato nativo de monitorización](https://docs.simplefoc.com/monitoring)
 
@@ -78,7 +97,7 @@ La monitorización arranca detenida. En el gráfico, selecciona **Target**, **Vo
 ### A. USB y encoder con la KORAD apagada
 
 1. Arranca el ESP32 y comprueba EN en el conector del Mini durante reset, arranque y conexión de Studio.
-2. Consulta `MC`, `MT` y `MLU`. Prueba `MC0`, `MC1` y un modo fuera de los dos admitidos, como `MC2`. Comprueba en Studio el modo vigente y que EN sigue bajo. Gira el rotor a mano y comprueba ángulo y velocidad. Antes de calibrar se muestra el sentido bruto del encoder.
+2. Consulta `MC`, `MT`, `MLU`, `MLV` y `S`. Con el driver deshabilitado, comprueba que `MLU2`, `MLV10` y `S15` se aplican y que las escrituras fuera de rango conservan el valor previo. Restablece `MLU3`, `MLV1` y `S10` si quieres probar con los ajustes iniciales. Prueba `MC0` y `MC1`. Gira el rotor a mano y comprueba ángulo y velocidad. Antes de calibrar se muestra el sentido bruto del encoder.
 3. Envía `ME1` y `A1`. Comprueba `ME0` y verifica que EN sigue bajo. Reserva `C1` para la fase B.
 
 ### B. Calibración supervisada
@@ -92,13 +111,19 @@ La monitorización arranca detenida. En el gráfico, selecciona **Target**, **Vo
 1. Tras validar A y B, abre el gráfico y envía `MC0` con el motor deshabilitado. Comprueba que la respuesta indica `torque` y envía `A1` y luego `ME1`. El plazo de 30 s empieza con `A1`. Consulta `ME` y `MMG0` para comprobar habilitación y consigna inicial cero.
 2. Envía `M1.0` desde la terminal. **Target** debe representar 1,0 V de consigna Q. Observa **Voltage Q** y **Velocity**. Detén la prueba con `ME0`. `M0` pone la consigna a 0 V y mantiene el driver habilitado.
 3. Comprueba que la autorización caduca aunque Studio siga enviando consultas. Al caducar baja EN y la consigna vuelve a cero. Repetir `ME1` o `A1` durante una autorización activa no prolonga el plazo. Para otra prueba, repite `A1` y `ME1` después de la parada.
-4. Si el rotor acelera rápidamente, el umbral de 1,0 rad/s puede terminar la prueba antes de los 30 s. Ante oscilación fuerte, movimiento inesperado, calentamiento o corriente excesiva, corta físicamente la potencia.
+4. En Torque Voltage el rotor puede acelerar hasta disparar el umbral `S` antes de los 30 s. Ante oscilación fuerte, movimiento inesperado, calentamiento o corriente excesiva, corta físicamente la potencia.
 5. Con el driver deshabilitado tras `ME0`, envía `MC1` y comprueba que la respuesta indica `vel`. Verifica que `ME1` por sí solo deja el driver deshabilitado. Para probar Velocity, envía una nueva secuencia `A1`, `ME1` y `M0.5`. Comprueba **Target** en rad/s y deshabilita con `ME0`.
 
-## Parada, recuperación y límites de la protección
+## Parada y recuperación en la misma sesión
 
 - `ME0` baja EN al procesarse, deshabilita el driver y cancela la autorización. Cerrar Studio o perder USB con el ESP32 aún alimentado deja correr el plazo de 30 s desde `A1`. La detección depende del bucle de firmware y del procesamiento serie. Usa el corte físico si falla la comunicación o el firmware deja de responder.
 - Commander puede escribir parámetros públicos y llamar directamente a `enable()` e `initFOC()`. Se protegen esos puntos de entrada con los métodos virtuales de `BLDCMotor`, conservando el protocolo nativo. `ME1` exige calibración y autorización vigentes. `MFR` deshabilita y se queda sin acceso a la alineación con potencia. Commander responde `MFRdone` incluso cuando la función rechaza la orden. La secuencia supervisada se inicia con `C1`.
-- Después de cada orden `M`, el firmware verifica el modo, la modulación, la dirección y el cero eléctrico, el límite fijo de 3 V y la validez de la consigna y de los parámetros del PID. Una escritura `MLU`, o un límite de tensión adjunto a una consigna Velocity, que cambie los 3 V restaura el límite y enclava un fallo antes del siguiente ciclo de control. La respuesta nativa a la escritura precede a la comprobación. Una consigna o realimentación no finita, una tensión Q fuera del intervalo, una calibración fallida o una velocidad filtrada superior a 1,0 rad/s también deshabilitan el driver y enclavan un fallo. Ante un fallo, corta potencia, corrige la causa y reinicia. El reset exige calibrar de nuevo y autorizar explícitamente el movimiento.
-- La protección de sobrevelocidad usa la estimación del encoder con un filtro fijo de 0,05 s. El disparo depende del retardo y la resolución de la estimación. La lectura SPI nativa de 2.4.0 descarta el bit de error y la paridad de la respuesta, por lo que un encoder desconectado o congelado puede devolver una lectura finita. **Voltage Q** muestra la orden calculada. El firmware carece de medición y protección por corriente de fase. [Lectura del AS5048A en 2.4.0](https://github.com/simplefoc/Arduino-FOC/blob/v2.4.0/src/sensors/MagneticSensorSPI.cpp)
+- Tras `ME0` o la caducidad, la consigna queda en cero y se conservan la calibración, el modo, el PID y los límites. Repite `A1` y `ME1` para la siguiente prueba en cualquiera de los dos modos.
+- Tras un fallo, consulta `R` en la terminal de Studio. Por ejemplo, `FOC: estado=FAULT calibrated=true enabled=false fault=OVERSPEED`. Cuando el rotor se haya detenido, envía `R1`. Se exige consigna cero, EN bajo en el GPIO, parámetros válidos, una lectura nueva del encoder y al menos 500 ms con velocidad estimada de hasta 0,2 rad/s. Un hueco de muestreo superior a 20 ms interrumpe esa comprobación. Tras recuperar, `R` indica `READY` y el driver permanece deshabilitado. Envía una nueva secuencia `A1`, `ME1` y la consigna.
+- `R1` permite limpiar `OVERSPEED`, una consigna inválida ya borrada (`TARGET`) o una configuración inválida ya corregida (`CONFIGURATION`). Las escrituras rechazadas por Commander conservan el valor anterior y permiten seguir operando. Los fallos `DRIVER`, `CALIBRATION`, `ENCODER`, `INTERNAL` y `ENABLE_PIN` son críticos. Corta la potencia, corrige la causa y reinicia para inicializar y calibrar bajo supervisión. Si cambia la posición relativa entre el motor y el imán del encoder, reinicia y calibra antes de volver a mover el motor.
+
+## Límites de la protección
+
+- La protección calcula la velocidad con diferencias de ángulo del AS5048A en intervalos de al menos 10 ms. Enclava tras tres intervalos consecutivos por encima de `S`. Esto descarta un pico aislado y añade un retardo del orden de decenas de milisegundos. El LPF de Studio sigue afectando al PID y a la gráfica. Los valores 10 y 20 rad/s son ajustes experimentales de este banco.
+- El sondeo comprueba la paridad y el bit de error SPI de diagnóstico y ángulo, además del estado de compensación, CORDIC y campo magnético. SimpleFOC sigue leyendo el encoder para el lazo FOC. Un encoder bloqueado que siga emitiendo tramas coherentes o un imán desplazado pueden pasar el sondeo. EN se lee en el GPIO del ESP32. Verifica en banco el nivel en el Mini y el corte físico. Durante la calibración síncrona se comprueba el encoder antes y después. El firmware carece de medición y protección por corriente de fase. [Hoja de datos del AS5048A](https://look.ams-osram.com/m/287d7ad97d1ca22e/original/AS5048-DS000298%20Datasheet) · [Lectura de ángulo en SimpleFOC 2.4.0](https://github.com/simplefoc/Arduino-FOC/blob/v2.4.0/src/sensors/MagneticSensorSPI.cpp)
 - La compilación comprueba el firmware para `esp32dev`. EN en el pin, compatibilidad física con Studio, calibración, estabilidad, respuesta de parada y comportamiento del sensor se verifican en banco antes de operar con carga.
