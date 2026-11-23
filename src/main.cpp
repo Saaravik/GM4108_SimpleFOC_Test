@@ -130,9 +130,8 @@ void doMotor(char* cmd) {
     if (cmd[0] == CMD_STATUS) {
         if (cmd[1] == '0' && driver.initialized) stopMotor();
         if (cmd[1] == '0' || (cmd[1] == '1' && motor.enabled)) {
-            char query[] = {CMD_STATUS, '\n', '\0'};
-            command.motor(&motor, query);
-            return;
+            cmd[1] = '\n';
+            cmd[2] = '\0';
         }
     }
     command.motor(&motor, cmd);
@@ -144,31 +143,34 @@ bool allowCommanderOption(const char* line, char maxValue) {
 }
 
 void runCommander() {
-    // Commander puede interpretar el sufijo de una línea larga como otro comando.
-    // Entregarle una sola línea completa por vuelta y descartar las tramas inválidas.
+    // Conservar una trama por vuelta y descartar la línea entera si resulta inválida.
+    // El lector de Commander 2.4.0 reinicia el búfer al llenarlo y sigue leyendo.
     static char line[MAX_COMMAND_LENGTH + 1];
     static size_t length = 0;
     static bool discard = false;
 
     for (int budget = MAX_COMMAND_LENGTH; budget > 0 && Serial.available(); --budget) {
         const int ch = Serial.read();
-        if (ch == '\r' || ch == '\n') {
-            if (!discard && length) {
-                line[length] = '\n';
-                line[length + 1] = '\0';
-                if ((line[0] == CMD_DECIMAL && !allowCommanderOption(line, '6')) ||
-                    (line[0] == CMD_VERBOSE && !allowCommanderOption(line, '3'))) {
-                    Serial.println(F("err"));
-                } else {
-                    command.run(line);
-                }
-            }
-            length = 0;
-            discard = false;
-            return;
+        if (ch != '\r' && ch != '\n') {
+            if (ch < ' ' || ch > '~' || length >= MAX_COMMAND_LENGTH - 1) discard = true;
+            if (!discard) line[length++] = static_cast<char>(ch);
+            continue;
         }
-        if (ch < ' ' || ch > '~' || length >= MAX_COMMAND_LENGTH - 1) discard = true;
-        if (!discard) line[length++] = static_cast<char>(ch);
+
+        const bool complete = !discard && length != 0;
+        line[length] = '\n';
+        line[length + 1] = '\0';
+        length = 0;
+        discard = false;
+        if (!complete) continue;
+
+        if ((line[0] == CMD_DECIMAL && !allowCommanderOption(line, '6')) ||
+            (line[0] == CMD_VERBOSE && !allowCommanderOption(line, '3'))) {
+            Serial.println(F("err"));
+        } else {
+            command.run(line);
+        }
+        return;
     }
 }
 }
@@ -205,7 +207,7 @@ void setup() {
     motor.monitor_downsample = 0;
     motor.monitor_variables = _MON_TARGET | _MON_VOLT_Q | _MON_VEL;
     command.verbose = VerboseMode::machine_readable;
-    command.add('M', doMotor, "GM4108");
+    command.add('M', doMotor, "motor GM4108");
 
     if (!driver.init()) {
         fault("Fallo driver.init()");

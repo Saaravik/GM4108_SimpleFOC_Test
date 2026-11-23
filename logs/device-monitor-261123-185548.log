@@ -1,0 +1,15 @@
+18:55:48.152 > DIO, clock div:2
+18:55:48.152 > load:bb���4640
+18:55:48.152 > load:0x40078000,len:15632
+18:55:48.152 > load:0x40080400,len:3164
+18:55:48.152 > entry 0x4008059c
+18:55:48.329 > MOT:Monitor enabled!
+18:55:48.332 > ESP32-DRV: Configuring 3PWM in group: 0 on timer: 0
+18:55:48.336 > ESP32-DRV: Configuring 2 operators.
+18:55:48.340 > ESP32-DRV: Configuring 3 comparators.
+18:55:48.343 > ESP32-DRV: Configuring 3 generators.
+18:55:48.346 > ESP32-DRV: Configuring center-aligned pwm.
+18:55:48.350 > ESP32-DRV: Enabling timer: 0
+18:55:48.353 > ESP32-DRV: MCPWM configured!
+18:55:48.355 > Prueba sin potencia: EN bajo, alineacion desactivada
+18:55:59.089 > ?M:GM4108

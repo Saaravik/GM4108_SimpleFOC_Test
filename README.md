@@ -45,11 +45,19 @@ La segunda orden carga por USB. Para la primera carga mantén desconectada la sa
 ## Primera comprobación por USB
 
 1. Cierra el monitor serie de PlatformIO y abre [SimpleFOCWebController](https://webcontroller.simplefoc.com/) en un navegador con Web Serial.
-2. Selecciona **115200** y el puerto USB del ESP32. Debe aparecer el motor **M / GM4108**. En la terminal, `?` lista el motor y `ME` debe devolver `ME0`.
+2. Selecciona **115200** y el puerto USB del ESP32. Debe aparecer el motor **M / motor GM4108**. En la terminal, `?` debe devolver `?M:motor GM4108`, `ME` debe devolver `ME0` y `MVP` debe devolver `MVP0.20000` después de la conexión, cuando el navegador configura cinco decimales.
 3. Activa la gráfica de **Angle** o consulta `MMG6` en la terminal. Gira despacio el rotor a mano en ambos sentidos y comprueba que el ángulo cambia. Verifica físicamente que EN permanece bajo y que `ME1` se rechaza.
 4. Comprueba que el navegador puede consultar y ajustar el PID y el filtro, y que el firmware rechaza las escrituras de límites y los cambios de modo. Los valores editados durante esta comprobación se pierden al reiniciar.
 
 Con la configuración entregada se inicializan SPI y PWM con EN bajo. Se omiten `motor.init()` e `initFOC()`, y la lectura de ángulo emplea el sentido bruto del encoder.
+
+### Protocolo serie y detección
+
+WebController añade un solo LF (`0x0A`) a cada envío. PlatformIO usa el mismo terminador con `monitor_eol = LF`. Al conectar, el navegador envía `#5` y `@3` para fijar cinco decimales y activar el modo legible por máquina. La detección de pestañas acepta respuestas como `?M:GM4108`, pero el indicador de la sección **Connection** busca una etiqueta que empiece por la palabra `motor`. La etiqueta `motor GM4108` satisface ambas comprobaciones. [Envío serie](https://github.com/simplefoc/simplefoc-webcontroller/blob/8833df1004b50cdb3a970becc3d0b1b7411556e8/src/simpleFoc/serial.ts#L128-L131) · [Conexión](https://github.com/simplefoc/simplefoc-webcontroller/blob/8833df1004b50cdb3a970becc3d0b1b7411556e8/src/components/SerialManager.tsx#L25) · [Detección de pestañas](https://github.com/simplefoc/simplefoc-webcontroller/blob/8833df1004b50cdb3a970becc3d0b1b7411556e8/src/components/Motors.tsx#L35)
+
+En SimpleFOC 2.4.0, `command.run()` lee el puerto hasta vaciarlo y llama a `command.run(char*)` al encontrar LF o CR. La sobrecarga con búfer despacha la línea recibida y las consultas usan el terminador para distinguir lectura de escritura. El firmware acepta LF, CR y CRLF, entrega una línea terminada en LF y NUL a la sobrecarga oficial y ejecuta como máximo un comando por ciclo de control. Conserva el descarte de líneas inválidas completas porque el lector nativo reinicia su búfer al llenarlo y sigue procesando los bytes restantes. El filtro de `doMotor()` valida las operaciones antes de delegar en `command.motor()`. [Commander 2.4.0](https://github.com/simplefoc/Arduino-FOC/blob/v2.4.0/src/communication/Commander.cpp)
+
+La compilación `pio run -e esp32dev` y una prueba de software con Commander 2.4.0 y puerto simulado confirmaron las respuestas del paso 2, el rechazo de `ME1` con la alineación desactivada y el bloqueo de las escrituras de límites. Con el firmware anterior, la misma secuencia LF también devolvió las respuestas de Commander con la etiqueta antigua. La falta de respuestas por Web Serial sigue pendiente de verificar en el banco.
 
 ## Alineación supervisada y primer movimiento
 
