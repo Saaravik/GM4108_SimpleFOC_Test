@@ -8,7 +8,33 @@
 #include "config.h"
 
 namespace {
-MagneticSensorSPI sensor(AS5048_SPI, cfg::encoderCs, cfg::encoderClockHz);
+class AlignmentSensor final : public MagneticSensorSPI {
+public:
+    using MagneticSensorSPI::MagneticSensorSPI;
+
+    void beginSweepCapture() { reading_ = 0; }
+
+    float getAngle() override {
+        const float angle = MagneticSensorSPI::getAngle();
+        if (reading_ < 2) {
+            sweepEnds_[reading_++] = angle;
+        }
+        return angle;
+    }
+
+    float endSweepCapture() {
+        const float displacement = reading_ == 2 ? sweepEnds_[1] - sweepEnds_[0] : NAN;
+        reading_ = 2;
+        return displacement;
+    }
+
+private:
+    // En FOCMotor::alignSensor() de 2.4.0, las dos primeras consultas son mid_angle y end_angle.
+    unsigned reading_ = 2;
+    float sweepEnds_[2] = {};
+};
+
+AlignmentSensor encoder(AS5048_SPI, cfg::encoderCs, cfg::encoderClockHz);
 BLDCDriver3PWM driver(cfg::pwmA, cfg::pwmB, cfg::pwmC, cfg::driverEnable);
 
 constexpr uint8_t monitorChannels = _MON_TARGET | _MON_VOLT_Q | _MON_VEL | _MON_ANGLE;
@@ -18,6 +44,19 @@ static_assert(cfg::alignVolts <= cfg::motorLimitVolts && cfg::motorLimitVolts <=
 bool inRange(float value, float upper) {
     return isfinite(value) && value >= 0.0f && value <= upper;
 }
+
+bool supportedMode(double mode) {
+    return mode == static_cast<double>(MotionControlType::torque) ||
+           mode == static_cast<double>(MotionControlType::velocity) ||
+           mode == static_cast<double>(MotionControlType::angle);
+}
+
+class SeededAngleFilter final : public LowPassFilter {
+public:
+    SeededAngleFilter(const LowPassFilter& filter, float angle) : LowPassFilter(filter.Tf, filter.Ts) {
+        y_prev = angle;
+    }
+};
 
 enum class Fault { none, overspeed, target, configuration, driver, calibration, encoder, internal, enablePin };
 
@@ -56,7 +95,14 @@ public:
         checkCommandState();
         double angle;
         if (!enabled && permitted_ && calibrated() && fault_ == Fault::none && checkInterlocks(&angle)) {
-            target = 0.0f;
+            target = controller == MotionControlType::angle ? shaftAngle() : 0.0f;
+            if (!isfinite(target)) {
+                latchFault(Fault::encoder);
+                return;
+            }
+            if (controller == MotionControlType::angle) {
+                LPF_angle = SeededAngleFilter(LPF_angle, target);
+            }
             current_sp = 0.0f;
             haveSpeedSample_ = true;
             lastSpeedAngle_ = angle;
@@ -106,18 +152,32 @@ public:
         pp_check_result = false;
 
         const bool initialized = BLDCMotor::init() == 1;
+        encoder.beginSweepCapture();
         const bool aligned = initialized && BLDCMotor::initFOC() == 1;
+        const float displacement = encoder.endSweepCapture();
         disable();
         calibrating_ = false;
 
         if (!initialized) {
             latchFault(Fault::driver);
-        } else if (!aligned || !pp_check_result || sensor_direction != Direction::CCW ||
+        } else if (!isfinite(displacement)) {
+            latchFault(Fault::encoder);
+        } else if (!aligned && sensor_direction == Direction::UNKNOWN && zero_electric_angle == NOT_SET) {
+            retryCalibration(F("movimiento insuficiente"));
+        } else if (!aligned || sensor_direction != Direction::CCW || displacement <= 0.0f ||
                    !inRange(zero_electric_angle, _2PI)) {
-            Serial.print(F("FOC: resultado de pares de polos "));
-            Serial.println(pp_check_result ? F("OK") : F("fallo"));
             latchFault(Fault::calibration);
         } else if (checkInterlocks()) {
+            const float error = fabsf(displacement * cfg::polePairs - _2PI);
+            if (error > cfg::polePairTolerance) {
+                Serial.printf("FOC: error de pares %.3f rad electricos.\r\n", error);
+                retryCalibration(F("desplazamiento fuera de tolerancia"));
+                return;
+            }
+            if (!pp_check_result) {
+                Serial.printf("FOC: aviso, PP nativo fuera de margen, aceptado con %.3f rad electricos (max %.2f).\r\n",
+                              error, cfg::polePairTolerance);
+            }
             calibratedZero_ = zero_electric_angle;
             Serial.println(F("FOC: CCW, 11 pares OK, motor deshabilitado."));
         }
@@ -164,8 +224,20 @@ public:
             return false;
         }
         permitted_ = false;
-        PID_velocity.reset();
+        resetMotionControllers();
         return true;
+    }
+
+    void setMechanicalZero() {
+        if (!calibrated() || fault_ != Fault::none || !prepareConfiguration() || !checkInterlocks()) {
+            Serial.println(F("FOC: Z1 requiere calibracion valida y motor deshabilitado."));
+            return;
+        }
+        mechanicalZero_ = static_cast<float>(sensor_direction) * sensor->getAngle();
+        sensor_offset = mechanicalZero_;
+        shaft_angle = 0.0f;
+        target = 0.0f;
+        Serial.println(F("FOC: cero mecanico relativo establecido."));
     }
 
     float overspeedLimit = cfg::overspeedLimit;
@@ -180,9 +252,11 @@ public:
             latchFault(Fault::configuration);
         } else if (!isfinite(target)) {
             latchFault(Fault::target);
-        } else {
+        } else if (!enabled) {
+            target = 0.0f;
+        } else if (controller != MotionControlType::angle) {
             const float targetLimit = controller == MotionControlType::velocity ? velocity_limit : voltage_limit;
-            target = enabled ? constrain(target, -targetLimit, targetLimit) : 0.0f;
+            target = constrain(target, -targetLimit, targetLimit);
         }
     }
 
@@ -290,7 +364,7 @@ public:
         }
 
         disable();
-        PID_velocity.reset();
+        resetMotionControllers();
         LPF_velocity = LowPassFilter(LPF_velocity.Tf);
         fault_ = Fault::none;
         Serial.println(F("FOC: recuperado. Motor deshabilitado. Nueva autorizacion con A1."));
@@ -316,12 +390,25 @@ public:
 private:
     bool calibrated() const { return calibratedZero_ != NOT_SET; }
 
+    void resetMotionControllers() {
+        PID_velocity.reset();
+        P_angle.reset();
+    }
+
+    void retryCalibration(const __FlashStringHelper* reason) {
+        sensor_direction = Direction::CW;
+        zero_electric_angle = NOT_SET;
+        Serial.print(F("FOC: calibracion rechazada, "));
+        Serial.print(reason);
+        Serial.println(F(". Motor deshabilitado. Repetir C1 tras revisar el rotor."));
+    }
+
     bool structureValid() const {
         const Direction expectedDirection = calibrated() ? Direction::CCW : Direction::CW;
-        return (controller == MotionControlType::velocity || controller == MotionControlType::torque) &&
+        return supportedMode(static_cast<double>(controller)) &&
                torque_controller == TorqueControlType::voltage &&
                foc_modulation == FOCModulationType::SinePWM && modulation_centered == 1 &&
-               motion_downsample == 0 && sensor_offset == 0.0f &&
+               motion_downsample == 0 && sensor_offset == mechanicalZero_ &&
                sensor_direction == expectedDirection && zero_electric_angle == calibratedZero_;
     }
 
@@ -332,7 +419,11 @@ private:
                inRange(PID_velocity.limit, voltage_limit) &&
                isfinite(PID_velocity.P) && isfinite(PID_velocity.I) && isfinite(PID_velocity.D) &&
                isfinite(PID_velocity.output_ramp) && PID_velocity.output_ramp >= 0.0f &&
-               isfinite(LPF_velocity.Tf) && LPF_velocity.Tf >= 0.0f;
+               isfinite(LPF_velocity.Tf) && LPF_velocity.Tf >= 0.0f &&
+               inRange(P_angle.limit, velocity_limit) &&
+               isfinite(P_angle.P) && isfinite(P_angle.I) && isfinite(P_angle.D) &&
+               isfinite(P_angle.output_ramp) && P_angle.output_ramp >= 0.0f &&
+               isfinite(LPF_angle.Tf) && LPF_angle.Tf >= 0.0f;
     }
 
     bool checkInterlocks(double* checkedAngle = nullptr) {
@@ -362,6 +453,7 @@ private:
     }
 
     float calibratedZero_ = NOT_SET;
+    float mechanicalZero_ = 0.0f;
     unsigned long permitStart_ = 0;
     unsigned long lastSpeedSampleUs_ = 0;
     unsigned long quietUs_ = 0;
@@ -401,9 +493,7 @@ bool allowMotionCommand(const char* cmd) {
     }
 
     const double mode = readNumber(cmd + 1);
-    const bool supported = mode == static_cast<double>(MotionControlType::torque) ||
-                           mode == static_cast<double>(MotionControlType::velocity);
-    return supported && motor.prepareModeChange(static_cast<MotionControlType>(mode));
+    return supportedMode(mode) && motor.prepareModeChange(static_cast<MotionControlType>(mode));
 }
 
 // Longitud de la consulta nativa que sustituye a una escritura rechazada.
@@ -424,6 +514,7 @@ int rejectedWriteOffset(const char* cmd) {
             }
             break;
         case CMD_V_PID:
+        case CMD_A_PID:
             switch (cmd[1]) {
                 case SCMD_PID_P:
                 case SCMD_PID_I:
@@ -433,7 +524,8 @@ int rejectedWriteOffset(const char* cmd) {
                 case SCMD_LPF_TF:
                     return allowSetting(cmd + 2, 0, FLT_MAX) ? -1 : 2;
                 case SCMD_PID_LIM:
-                    return allowSetting(cmd + 2, 0, motor.voltage_limit) ? -1 : 2;
+                    return allowSetting(cmd + 2, 0, cmd[0] == CMD_A_PID ? motor.velocity_limit : motor.voltage_limit)
+                               ? -1 : 2;
             }
             break;
         case CMD_TORQUE_TYPE:
@@ -450,7 +542,7 @@ int rejectedWriteOffset(const char* cmd) {
         }
         default:
             if (isDigit(cmd[0]) || cmd[0] == '+' || cmd[0] == '-') {
-                // El formato compuesto de Velocity podría escribir voltage_limit con EN alto.
+                // Las consignas compuestas pueden escribir límites con EN alto.
                 const double value = readNumber(cmd);
                 return value >= -FLT_MAX && value <= FLT_MAX ? -1 : 0;
             }
@@ -493,6 +585,14 @@ void doAuthorize(char* cmd) {
     }
 }
 
+void doMechanicalZero(char* cmd) {
+    if (confirmed(cmd)) {
+        motor.setMechanicalZero();
+    } else {
+        Serial.println(F("FOC: usar Z1 para fijar el cero mecanico."));
+    }
+}
+
 void doOverspeed(char* cmd) {
     motor.checkPermit();
     if (command.verbose != VerboseMode::machine_readable && command.verbose != VerboseMode::nothing) {
@@ -524,9 +624,9 @@ void setup() {
     Serial.begin(cfg::serialBaud);
 
     SPI.begin(cfg::encoderSck, cfg::encoderMiso, cfg::encoderMosi, cfg::encoderCs);
-    sensor.init(&SPI);
-    sensor.min_elapsed_time = 0.01f;  // Reduce el ruido de cuantización a baja velocidad.
-    motor.linkSensor(&sensor);
+    encoder.init(&SPI);
+    encoder.min_elapsed_time = 0.01f;  // Reduce el ruido de cuantización a baja velocidad.
+    motor.linkSensor(&encoder);
     motor.sensor_direction = Direction::CW;  // Sentido bruto hasta que se calibre.
 
     driver.voltage_power_supply = cfg::supplyVolts;
@@ -544,6 +644,7 @@ void setup() {
     motor.PID_velocity.I = cfg::velocityI;
     motor.PID_velocity.D = cfg::velocityD;
     motor.PID_velocity.output_ramp = cfg::velocityOutputRamp;
+    motor.P_angle.P = cfg::angleP;
     motor.LPF_velocity.Tf = cfg::velocityFilterSeconds;
 
     if (driver.init() != 1) {
@@ -558,6 +659,7 @@ void setup() {
     command.add('C', doCalibration, "calibracion supervisada (C1)");
     command.add('A', doAuthorize, "autorizar movimiento (A1)");
     command.add('S', doOverspeed, "umbral de sobrevelocidad (rad/s)");
+    command.add('Z', doMechanicalZero, "cero mecanico relativo (Z1)");
     command.add('R', doRecovery, "estado y recuperacion (R1)");
     command.verbose = VerboseMode::machine_readable;
 
